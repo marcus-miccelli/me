@@ -1,4 +1,5 @@
 import ColourBends from "./components/ColorBends"
+import './css/App.css'
 
 function App() {
   return (
