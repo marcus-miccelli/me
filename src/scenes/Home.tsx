@@ -26,8 +26,8 @@ export default function Home() {
           position: [0, 0, 10],
         }}
       >
-        <ambientLight intensity={1.5} />
-        <directionalLight position={[3, 3, 5]} intensity={2} />
+        <ambientLight intensity={0.2} />
+        <directionalLight position={[3, 4, 5]} intensity={1} />
         <ColorBends />
         <Orb />
       </Canvas>
