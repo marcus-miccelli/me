@@ -1,7 +1,7 @@
 import { useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import AuroraRibbon from "./AuroraRibbon";
+import AuroraBeam from "./AuroraBeam";
 
 const vertexShader = `
 varying vec2 vUv;
@@ -39,10 +39,10 @@ void main() {
   float pulse = 0.5 + 0.5 * sin(uTime * 1.5);
 
   vec3 base = mix(uColorA, uColorB, vUv.y);
-  base += fresnel * vec3(0.5, 0.8, 1.0);
-  base += pulse * 0.08;
+  base += fresnel * vec3(0, 0, 0);
+  base += pulse * 1.08;
 
-  gl_FragColor = vec4(base, 1.0);
+  gl_FragColor = vec4(base, 1);
 }
 `;
 
@@ -55,8 +55,8 @@ export default function Orb() {
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
-      uColorA: { value: new THREE.Color("#b03bf3") },
-      uColorB: { value: new THREE.Color("#88ccff") },
+      uColorA: { value: new THREE.Color("#ffffff") },
+      uColorB: { value: new THREE.Color("#000000") },
     }),
     [],
   );
@@ -82,9 +82,14 @@ export default function Orb() {
 
     mesh.scale.setScalar(scale);
 
+    // The aurora beams skim / lens slightly outside the orb surface, so give
+    // them clearance in front of the near plane too (they scale with the orb).
+    const beamClearance = 1.1;
+
     const padding = 0.5;
     mesh.position.z =
-      camera.position.z - (scale * radius + camera.near + padding);
+      camera.position.z -
+      (scale * radius * beamClearance + camera.near + padding);
 
     mesh.rotation.z += 0.001;
 
@@ -93,7 +98,6 @@ export default function Orb() {
 
   return (
     <group ref={groupRef}>
-      <AuroraRibbon />
       <mesh ref={myMesh} renderOrder={1}>
         <sphereGeometry args={[1, 64, 64]} />
         <shaderMaterial
@@ -102,8 +106,34 @@ export default function Orb() {
           vertexShader={vertexShader}
           fragmentShader={fragmentShader}
         />
+
+        {/*
+          Children of the orb mesh: the beams inherit the orb's rotation.z
+          and pulsing scale, so their anchors stay locked to the orb-local
+          points (-1, 0, 0) and (1, 0, 0).
+        */}
+        <AuroraBeam
+          side="left"
+          brightness={1}
+          speed={2.5}
+          bandSpread={4.6}
+          noiseAmplitude={3}
+          color1="#f7f7f7"
+          color2="#e100ff"
+          phase={16}
+        />
+        <AuroraBeam
+          side="right"
+          brightness={1}
+          speed={2.5}
+          bandSpread={4.6}
+          noiseAmplitude={3}
+          color1="#f7f7f7"
+          color2="#66f7ff"
+          layerOffset={0.6}
+          phase={33}
+        />
       </mesh>
-      
     </group>
   );
 }
