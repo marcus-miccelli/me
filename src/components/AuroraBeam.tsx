@@ -16,15 +16,15 @@ import * as THREE from "three";
  * Path model (orb-local space, computed in the vertex shader). Each beam is
  * built from TWO ribbon strips sharing the same approach:
  *   1. Approach: a straight run along ±x from beyond the screen edge to the
- *      sphere surface, with a gentle animated aurora wave. Near the orb the
- *      two strips fork apart (splitLead), one steering up, one down.
- *   2. Wrap: each strip then hugs the silhouette — a circular arc just
- *      outside the rim whose standoff radius decays as
- *      (1 + skim * exp(-tightness * dphi)), so the light visibly TIGHTENS
- *      the further it bends. Top and bottom arcs are exactly symmetric.
- *      The arc bows backwards in z (wrapDepth) so the bend lives in 3D,
- *      strongest in the xz plane, and is correctly depth-tested against
- *      the orb.
+ *      sphere, with a gentle animated aurora wave.
+ *   2. Fork: a circular fillet (radius forkRadius) turns each strip
+ *      tangentially onto the rim — one up, one down — with true tangent
+ *      continuity, so the ribbon never folds at the impact point.
+ *   3. Wrap: each strip hugs the silhouette — an arc just outside the rim
+ *      whose standoff decays as exp(-tightness * dphi), so the light
+ *      visibly TIGHTENS the further it bends. Top and bottom arcs are
+ *      exactly symmetric, and each arc bows backwards in z (wrapDepth) so
+ *      the bend lives in 3D and is depth-tested against the orb.
  */
 
 const vertexShader = /* glsl */ `
@@ -36,7 +36,7 @@ uniform float uApproachLen; // straight run length (orb-local units), set per-fr
 uniform float uWrapAngle;   // how far each fork wraps around the rim (radians)
 uniform float uSkim;        // initial standoff above the surface (fraction of radius)
 uniform float uTightness;   // exp decay of the standoff -> "light tightens" as it bends
-uniform float uSplitLead;   // how early the fork opens before the rim (radians)
+uniform float uForkRadius;  // fillet radius of the fork turn (fraction of orb radius)
 uniform float uWrapDepth;   // how far the arc bows behind the orb in z
 uniform float uWidth;       // ribbon half-width (fraction of radius)
 uniform float uWidthDecay;  // width shrink per radian of wrap
@@ -49,31 +49,56 @@ varying float vDist;   // arclength in orb-local units (stable band coordinates)
 varying float vAcross; // 0..1 across the ribbon width
 varying float vWrap;   // 0..1 progress through the wrap segment
 varying float vFork;   // 0 while the two strips overlap, 1 once forked
+varying vec3 vLocal;   // orb-local position, for analytic occlusion
 
 const float PI = 3.141592653589793;
 
+/*
+ * The path is C1 (tangent-continuous) by construction, in three pieces
+ * parameterised by a single arclength D:
+ *
+ *   1. Straight: radial run from off-screen down to radius (r0 + f).
+ *   2. Fillet:  a quarter-circle of radius f that turns the radial heading
+ *               tangentially — this IS the fork; the top strip turns one
+ *               way, the bottom strip the other. (A hard switch here was
+ *               what folded the ribbon into the flickering square.)
+ *   3. Arc:     rim-hugging sweep whose standoff decays as
+ *               exp(-tightness * dphi), so the light tightens as it bends,
+ *               bowing backwards in z through the sweep.
+ */
 vec3 pathPoint(float u, out float dist, out float wrap, out float fork) {
-  float r0 = 1.0 + uSkim;
-  float fA = uApproachLen / (uApproachLen + uWrapAngle);
   float anchor = uSide < 0.0 ? PI : 0.0;
-  float dir = uSide * uBranch; // arc direction around the silhouette
+  float dir = uSide * uBranch; // turn direction around the silhouette
 
-  if (u < fA) {
-    // ---- straight approach from off-screen towards the anchor point ----
-    float s = u / max(fA, 1e-5);
-    dist = s * uApproachLen;
+  float r0 = 1.0 + uSkim;
+  float f = uForkRadius;
+
+  // classical line-circle fillet: centre sits at distance f from the radial
+  // line AND at distance (r0 + f) from the origin, so it is tangent to BOTH
+  // the incoming straight run and the rim circle
+  float a = sqrt(r0 * r0 + 2.0 * r0 * f); // where the straight run ends
+  float delta = atan(f, a);               // rim angle of the fillet exit
+  float gamma = PI * 0.5 - delta;         // fillet sweep
+  float filletLen = f * gamma;
+
+  float total = uApproachLen + filletLen + uWrapAngle;
+  float D = u * total;
+  dist = D;
+
+  vec2 R = vec2(cos(anchor), sin(anchor));        // radial unit (outwards)
+  vec2 T = dir * vec2(-sin(anchor), cos(anchor)); // turn-side tangential unit
+
+  // ---- 1. straight approach from off-screen ----
+  if (D < uApproachLen) {
+    float x = a + (uApproachLen - D);
     wrap = 0.0;
+    fork = 0.0;
 
-    float x = mix(r0 + uApproachLen, r0, s);
+    vec3 p = vec3(x * R, 0.0);
 
-    // the two strips share this path, then steer apart just before the rim
-    fork = smoothstep(0.55, 1.0, s);
-    float ang = anchor + dir * uSplitLead * fork;
-
-    vec3 p = vec3(x * cos(ang), x * sin(ang), 0.0);
-
-    // aurora sway, faded near the fork so the entry into the arc is clean
-    float win = smoothstep(0.0, 0.25, s) * (1.0 - smoothstep(0.65, 0.95, s));
+    // aurora sway, faded out before the fillet so the turn stays clean
+    float s = D / max(uApproachLen, 1e-4);
+    float win = smoothstep(0.0, 0.25, s) * (1.0 - smoothstep(0.55, 0.9, s));
     p.y +=
       (sin(x * uWaveFreq + uTime * uSpeed * 0.6 + uPhase) * uWaveAmp +
         sin(x * uWaveFreq * 2.6 - uTime * uSpeed * 0.35 + uPhase * 1.7) *
@@ -82,24 +107,39 @@ vec3 pathPoint(float u, out float dist, out float wrap, out float fork) {
     return p;
   }
 
-  // ---- arc hugging the silhouette ----
-  float q = (u - fA) / max(1.0 - fA, 1e-5);
-  float dphi = q * uWrapAngle;
-  dist = uApproachLen + dphi;
-  wrap = q;
+  // ---- 2. fillet: tangent turn from the line onto the rim ----
+  if (D < uApproachLen + filletLen) {
+    float beta = (D - uApproachLen) / max(f, 1e-4); // 0..gamma
+    wrap = 0.0;
+    fork = beta / max(gamma, 1e-4);
+
+    // in the (R, T) basis: centre at (a, f), sweeping from the line-tangency
+    // point towards the rim-tangency point
+    float theta = -PI * 0.5 - beta;
+    vec2 pc = vec2(a, f) + f * vec2(cos(theta), sin(theta));
+
+    return vec3(pc.x * R + pc.y * T, 0.0);
+  }
+
+  // ---- 3. rim-hugging arc ----
+  float dphi = D - uApproachLen - filletLen;
+  wrap = clamp(dphi / max(uWrapAngle, 1e-4), 0.0, 1.0);
   fork = 1.0;
 
-  // standoff tightens exponentially the further the light bends
-  float rr = 1.0 + uSkim * exp(-uTightness * dphi);
+  float psi = anchor + dir * (delta + dphi);
 
-  // continue from where the fork left off
-  float psi = anchor + dir * (uSplitLead + dphi);
+  // standoff tightens exponentially as the light bends; the eased start
+  // keeps the decay's initial slope at zero so the fillet exit stays smooth
+  float decay = exp(-uTightness * dphi * smoothstep(0.0, 0.5, dphi));
+  float rr = 1.0 + uSkim * decay;
 
   vec3 p = vec3(rr * cos(psi), rr * sin(psi), 0.0);
 
   // the bend bows backwards: strongest xz interaction mid-arc, and always
-  // behind the orb so depth-testing stays honest
-  p.z = -uWrapDepth * sin(min(dphi, PI));
+  // behind the orb so depth-testing stays honest; sin^2 eases in and out so
+  // the dive into z doesn't kink the path at the fillet exit
+  float bow = sin(min(dphi, PI));
+  p.z = -uWrapDepth * bow * bow;
 
   // residual aurora shimmer, damped as the wrap tightens
   float shimmer = sin(dphi * uWaveFreq * 2.0 + uTime * uSpeed * 0.6 + uPhase) *
@@ -134,6 +174,7 @@ void main() {
   vAcross = v * 0.5 + 0.5;
   vWrap = w0;
   vFork = f0;
+  vLocal = pos;
 
   gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 }
@@ -167,6 +208,7 @@ varying float vDist;
 varying float vAcross;
 varying float vWrap;
 varying float vFork;
+varying vec3 vLocal;
 
 #define TAU 6.28318
 
@@ -278,12 +320,30 @@ void main() {
   // ring brightens slightly as it tightens around the orb
   col *= uBrightness * mix(0.55, 1.0, vFork) * mix(1.0, uWrapGlow, vWrap);
 
+  // soft tone rolloff: additive strips would otherwise hard-clip into
+  // saturated white slabs where they stack; this keeps the glow feathered
+  col = 1.0 - exp(-col);
+
   // feathered ribbon edges + head/tail fades
   float across =
     smoothstep(0.0, 0.28, vAcross) * (1.0 - smoothstep(0.72, 1.0, vAcross));
   float head = smoothstep(0.0, 0.03, vAlong);
-  float tail = 1.0 - smoothstep(0.8, 1.0, vAlong);
-  float mask = across * head * tail;
+  float tail = 1.0 - smoothstep(0.7, 0.98, vAlong);
+
+  // analytic soft occlusion by the orb (unit sphere in this local frame).
+  // A hardware depth test hard-clips the ribbon's inner width against the
+  // sphere along a pixel-exact circle; as the orb pulses and the noise
+  // animates, that binary edge crawls and flickers. Instead the material
+  // skips the depth test and fades out smoothly where a fragment sits
+  // inside the silhouette AND behind the sphere's front surface.
+  float rad = length(vLocal.xy);
+  float rc = min(rad, 1.0);
+  float sphereZ = sqrt(max(1.0 - rc * rc, 0.0));
+  float behind = smoothstep(-0.05, 0.05, sphereZ - vLocal.z);
+  float inside = 1.0 - smoothstep(0.88, 1.02, rad);
+  float occlusion = 1.0 - behind * inside;
+
+  float mask = across * head * tail * occlusion;
 
   col *= mask;
   float alpha = clamp(length(col), 0.0, 1.0);
@@ -339,8 +399,8 @@ type AuroraBeamProps = {
   wrapTightness?: number;
   /** Initial standoff above the surface, as a fraction of the orb radius. */
   skim?: number;
-  /** How early the top/bottom fork opens before the rim, in degrees. */
-  splitLead?: number;
+  /** Fillet radius of the fork turn, as a fraction of the orb radius. */
+  forkRadius?: number;
   /** How far the arcs bow behind the orb in z — the xz-plane bend depth. */
   wrapDepth?: number;
   /** Ribbon half-width as a fraction of the orb radius. */
@@ -378,14 +438,14 @@ export default function AuroraBeam({
   enableMouseInteraction = true,
   mouseInfluence = 0.25,
 
-  wrapAngle = 155,
+  wrapAngle = 130,
   wrapTightness = 1.0,
   skim = 0.06,
-  splitLead = 14,
+  forkRadius = 0.45,
   wrapDepth = 0.35,
   beamWidth = 0.5,
   widthDecay = 0.14,
-  wrapGlow = 1.5,
+  wrapGlow = 1.25,
   softness = 2.2,
   waveAmplitude = 0.09,
   waveFrequency = 1.4,
@@ -410,7 +470,7 @@ export default function AuroraBeam({
     uWrapAngle: { value: wrapAngle * DEG },
     uSkim: { value: skim },
     uTightness: { value: wrapTightness },
-    uSplitLead: { value: splitLead * DEG },
+    uForkRadius: { value: forkRadius },
     uWrapDepth: { value: wrapDepth },
     uWidth: { value: beamWidth },
     uWidthDecay: { value: widthDecay },
@@ -481,7 +541,12 @@ export default function AuroraBeam({
     const halfW = viewport.width / 2;
     const halfH = viewport.height / 2;
     const reach = Math.hypot(halfW, halfH) + offscreenMargin;
-    const approachLen = Math.max(reach / s - (1 + skim), 0.25);
+
+    // the straight run ends where the fillet begins, at radius
+    // sqrt(r0^2 + 2 r0 f) — mirror of the vertex shader's `a`
+    const r0 = 1 + skim;
+    const filletStart = Math.sqrt(r0 * r0 + 2 * r0 * forkRadius);
+    const approachLen = Math.max(reach / s - filletStart, 0.25);
 
     // smoothed pointer, matching Soft Aurora's easing
     if (enableMouseInteraction) {
@@ -490,7 +555,10 @@ export default function AuroraBeam({
       mouseCurrent.current.set(0.5, 0.5);
     }
 
-    for (const material of [materialTopRef.current, materialBottomRef.current]) {
+    for (const material of [
+      materialTopRef.current,
+      materialBottomRef.current,
+    ]) {
       if (!material) continue;
 
       material.uniforms.uTime.value = t;
@@ -504,7 +572,7 @@ export default function AuroraBeam({
       material.uniforms.uWrapAngle.value = wrapAngle * DEG;
       material.uniforms.uSkim.value = skim;
       material.uniforms.uTightness.value = wrapTightness;
-      material.uniforms.uSplitLead.value = splitLead * DEG;
+      material.uniforms.uForkRadius.value = forkRadius;
       material.uniforms.uWrapDepth.value = wrapDepth;
       material.uniforms.uWidth.value = beamWidth;
       material.uniforms.uWidthDecay.value = widthDecay;
@@ -537,7 +605,7 @@ export default function AuroraBeam({
           fragmentShader={fragmentShader}
           transparent
           depthWrite={false}
-          depthTest
+          depthTest={false}
           side={THREE.DoubleSide}
           blending={THREE.AdditiveBlending}
         />
@@ -551,7 +619,7 @@ export default function AuroraBeam({
           fragmentShader={fragmentShader}
           transparent
           depthWrite={false}
-          depthTest
+          depthTest={false}
           side={THREE.DoubleSide}
           blending={THREE.AdditiveBlending}
         />

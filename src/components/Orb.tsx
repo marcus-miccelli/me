@@ -39,10 +39,10 @@ void main() {
   float pulse = 0.5 + 0.5 * sin(uTime * 1.5);
 
   vec3 base = mix(uColorA, uColorB, vUv.y);
-  base += fresnel * vec3(0, 0, 0);
-  base += pulse * 1.08;
+  base += fresnel * vec3(0.5, 0.8, 1.0);
+  base += pulse * 0.08;
 
-  gl_FragColor = vec4(base, 1);
+  gl_FragColor = vec4(base, 1.0);
 }
 `;
 
@@ -55,8 +55,8 @@ export default function Orb() {
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
-      uColorA: { value: new THREE.Color("#ffffff") },
-      uColorB: { value: new THREE.Color("#000000") },
+      uColorA: { value: new THREE.Color("#b03bf3") },
+      uColorB: { value: new THREE.Color("#88ccff") },
     }),
     [],
   );
@@ -82,14 +82,9 @@ export default function Orb() {
 
     mesh.scale.setScalar(scale);
 
-    // The aurora beams skim / lens slightly outside the orb surface, so give
-    // them clearance in front of the near plane too (they scale with the orb).
-    const beamClearance = 1.1;
-
     const padding = 0.5;
     mesh.position.z =
-      camera.position.z -
-      (scale * radius * beamClearance + camera.near + padding);
+      camera.position.z - (scale * radius + camera.near + padding);
 
     mesh.rotation.z += 0.001;
 
@@ -114,24 +109,24 @@ export default function Orb() {
         */}
         <AuroraBeam
           side="left"
-          brightness={1}
-          speed={2.5}
-          bandSpread={4.6}
+          brightness={1.1}
+          speed={3.5}
+          bandSpread={2.6}
           noiseAmplitude={3}
           color1="#f7f7f7"
           color2="#e100ff"
-          phase={16}
+          phase={0}
         />
         <AuroraBeam
           side="right"
-          brightness={1}
-          speed={2.5}
-          bandSpread={4.6}
+          brightness={1.1}
+          speed={3.5}
+          bandSpread={2.6}
           noiseAmplitude={3}
           color1="#f7f7f7"
           color2="#66f7ff"
           layerOffset={0.6}
-          phase={33}
+          phase={17.3}
         />
       </mesh>
     </group>
