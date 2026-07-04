@@ -1,28 +1,10 @@
-import ColourBends from "./components/ColorBends"
-import './css/App.css'
+import Home from "./scenes/Home";
+import "./css/App.css";
 
 function App() {
   return (
-    <div className="background">
-      <ColourBends
-            colors= {["#ffffff"]}
-            transparent={false}
-            rotation={90}
-            autoRotate={0}
-            speed={0.2}
-            scale={1}
-            frequency={1}
-            warpStrength={1}
-            mouseInfluence={1}
-            parallax={0.5}
-            noise={0.10}
-            iterations={1}
-            intensity={1.5}
-            bandWidth={6}
-          />
-    </div>
-    
-  )
+    <Home/>
+  );
 }
 
-export default App
+export default App;
