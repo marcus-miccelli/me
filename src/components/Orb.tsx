@@ -187,7 +187,7 @@ export default function Orb() {
     const avg = (max + min) / 2;
     const mid = (max - min) / 2;
 
-    const scale = avg + Math.cos(t / 4) * mid;
+    const scale = avg + Math.cos(t/8) * mid;
 
     mesh.scale.setScalar(scale);
 
