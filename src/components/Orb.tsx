@@ -18,10 +18,17 @@ void main() {
 `;
 
 const fragmentShader = `
+precision highp float;
+
 uniform float uTime;
+uniform float uWaveSpeed;
+uniform float uWaveFrequency;
+uniform float uWaveAmplitude;
+uniform float uColorNum;
+uniform float uPixelSize;
+uniform float uNoise;
 uniform vec3 uBaseColor;
-uniform vec3 uGrainColor;
-uniform vec3 uDustColor;
+uniform vec3 uWaveColor;
 
 varying vec3 vNormal;
 varying vec3 vObjectNormal;
@@ -56,31 +63,48 @@ float noise(vec3 p) {
   return mix(nxy0, nxy1, f.z);
 }
 
-float fbm(vec3 p) {
+float waveFbm(vec2 p) {
   float value = 0.0;
-  float amplitude = 0.52;
+  float amp = 1.0;
 
-  for (int i = 0; i < 5; i++) {
-    value += amplitude * noise(p);
-    p = p * 2.08 + vec3(3.17, 1.91, 4.63);
-    amplitude *= 0.48;
+  for (int i = 0; i < 4; i++) {
+    value += amp * abs(noise(vec3(p, uTime * 0.025)) * 2.0 - 1.0);
+    p *= uWaveFrequency;
+    amp *= uWaveAmplitude;
   }
 
   return value;
 }
 
-float ridged(vec3 p) {
-  float value = 0.0;
-  float amplitude = 0.5;
+float wavePattern(vec2 p) {
+  vec2 drift = vec2(uTime * uWaveSpeed, -uTime * uWaveSpeed * 0.7);
+  float warp = waveFbm(p - drift);
+  return waveFbm(p + vec2(warp * 0.85, -warp * 0.55));
+}
 
-  for (int i = 0; i < 4; i++) {
-    float n = noise(p);
-    value += amplitude * (1.0 - abs(n * 2.0 - 1.0));
-    p = p * 2.32 + vec3(1.73, 4.21, 2.57);
-    amplitude *= 0.5;
-  }
+float bayer2(vec2 p) {
+  p = mod(floor(p), 2.0);
+  return 2.0 * p.x + 3.0 * p.y - 4.0 * p.x * p.y;
+}
 
-  return value;
+float bayer8(vec2 p) {
+  p = floor(p);
+  float coarse = bayer2(floor(p / 4.0)) * 16.0;
+  float mid = bayer2(floor(p / 2.0)) * 4.0;
+  float fine = bayer2(p);
+  return (coarse + mid + fine) / 64.0;
+}
+
+float colorBendsNoise(vec2 coord) {
+  return fract(sin(dot(coord + vec2(uTime), vec2(12.9898, 78.233))) * 43758.5453123);
+}
+
+float orderedDither(float value) {
+  vec2 pixel = floor(gl_FragCoord.xy / max(uPixelSize, 1.0));
+  float threshold = bayer8(pixel) - 0.5;
+  float levels = max(uColorNum - 1.0, 2.0);
+  value += threshold / levels;
+  return floor(clamp(value, 0.0, 1.0) * levels + 0.5) / levels;
 }
 
 void main() {
@@ -88,39 +112,39 @@ void main() {
   vec3 objectNormal = normalize(vObjectNormal);
 
   float radial = clamp(length(normal.xy), 0.0, 1.0);
-  float slowSpin = uTime * 0.024;
-  vec3 p = objectNormal * 5.25;
-  p.xy = mat2(cos(slowSpin), -sin(slowSpin), sin(slowSpin), cos(slowSpin)) * p.xy;
+  float spin = uTime * 0.025;
+  vec2 p = objectNormal.xy * 1.15 + objectNormal.z * vec2(0.18, -0.12);
+  p = mat2(cos(spin), -sin(spin), sin(spin), cos(spin)) * p;
 
-  float charcoal = fbm(p * 1.45 + vec3(0.0, 0.0, uTime * 0.008));
-  float grit = ridged(p * 6.4 - vec3(0.0, uTime * 0.012, 0.0));
-  float pores = ridged(p * 12.5 + vec3(1.1, 0.0, -uTime * 0.008));
-  float hairline = ridged(p * 24.0 + vec3(0.0, 2.4, uTime * 0.004));
-  float flecks = hash(floor(objectNormal * 150.0));
-  float microFlecks = hash(floor(objectNormal * 310.0 + vec3(7.0, 3.0, 11.0)));
-  float screenGrain = hash(vec3(floor(gl_FragCoord.xy * 1.45), floor(uTime * 9.0)));
+  float waves = wavePattern(p);
+  float grain = colorBendsNoise(gl_FragCoord.xy * 0.92);
+  float dust = colorBendsNoise(floor(gl_FragCoord.xy / 2.0) * 2.0 + 19.0);
+  float fineGrain = colorBendsNoise(gl_FragCoord.xy * 1.9 + vec2(41.0, 17.0));
 
-  float coarseGrain = charcoal * 0.065 + grit * 0.09 + pores * 0.06;
-  float fineGrain = hairline * 0.055 + smoothstep(0.58, 0.98, flecks) * 0.09;
-  fineGrain += smoothstep(0.72, 0.995, microFlecks) * 0.07;
-  float powder = (screenGrain - 0.5) * 0.1;
-  float pits = smoothstep(0.48, 0.86, pores) * smoothstep(0.08, 0.68, radial);
+  float body = smoothstep(0.16, 1.15, waves);
+  body = pow(body, 1.35);
+  body += (grain - 0.5) * uNoise * 0.45;
+  body += (dust - 0.5) * uNoise * 0.25;
 
-  float light = max(dot(objectNormal, normalize(vec3(-0.55, 0.42, 0.46))), 0.0);
-  float bodyShade = 0.18 + light * 0.34;
-  float centerVoid = 1.0 - smoothstep(0.08, 0.36, radial + (charcoal - 0.5) * 0.05);
-  float edgeFade = 1.0 - smoothstep(0.7, 0.99, radial);
-  float outerBlack = smoothstep(0.82, 1.0, radial);
+  float centerSink = 1.0 - smoothstep(0.05, 0.42, radial + (waves - 0.5) * 0.055);
+  float edgeFade = 1.0 - smoothstep(0.68, 1.0, radial);
+  float outerBlack = smoothstep(0.84, 1.0, radial);
 
-  vec3 col = uBaseColor * (0.55 + bodyShade);
-  col += uGrainColor * max(coarseGrain + fineGrain + powder, 0.0) * (0.72 + bodyShade);
-  col += uDustColor * smoothstep(0.62, 1.0, screenGrain) * 0.018;
-  col = mix(col, vec3(0.0), pits * 0.46);
-  col = mix(col, vec3(0.0), centerVoid * 0.42);
-  col *= edgeFade;
-  col = mix(col, vec3(0.0), outerBlack * 0.92);
-  col = clamp(col, 0.0, 0.14);
+  float value = body * 0.3 + 0.014;
+  value = mix(value, 0.0, centerSink * 0.28);
+  value = orderedDither(value);
 
+  float surfaceMask = smoothstep(0.08, 0.48, radial);
+  float filmGrain = (grain - 0.5) * uNoise * 0.8;
+  filmGrain += (dust - 0.5) * uNoise * 0.45;
+  filmGrain += (fineGrain - 0.5) * uNoise * 0.55;
+  value = clamp(value + filmGrain * surfaceMask, 0.0, 1.0);
+
+  value *= edgeFade;
+  value = mix(value, 0.0, outerBlack * 0.95);
+  value = clamp(value, 0.0, 0.2);
+
+  vec3 col = mix(uBaseColor, uWaveColor, value);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -134,9 +158,14 @@ export default function Orb() {
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
-      uBaseColor: { value: new THREE.Color("#030303") },
-      uGrainColor: { value: new THREE.Color("#77736a") },
-      uDustColor: { value: new THREE.Color("#2f2d2a") },
+      uWaveSpeed: { value: 0.25 },
+      uWaveFrequency: { value: 2.1 },
+      uWaveAmplitude: { value: 0.43 },
+      uColorNum: { value: 32.4 },
+      uPixelSize: { value: 1.0 },
+      uNoise: { value: 0.10 },
+      uBaseColor: { value: new THREE.Color("#ffffff") },
+      uWaveColor: { value: new THREE.Color("#000000") },
     }),
     [],
   );
@@ -194,7 +223,7 @@ export default function Orb() {
           bandSpread={2.6}
           noiseAmplitude={3}
           color1="#f7f7f7"
-          color2="#e100ff"
+          color2="#1900ff"
           phase={0}
         />
         <AuroraBeam
@@ -204,7 +233,7 @@ export default function Orb() {
           bandSpread={2.6}
           noiseAmplitude={3}
           color1="#f7f7f7"
-          color2="#66f7ff"
+          color2="#c41515"
           layerOffset={0.6}
           phase={17.3}
         />
@@ -212,5 +241,6 @@ export default function Orb() {
     </group>
   );
 }
+
 
 
