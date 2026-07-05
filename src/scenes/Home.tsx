@@ -11,7 +11,7 @@ export default function Home() {
         dpr={[1, 2]}
         gl={{
           alpha: true,
-          antialias: false,
+          antialias: true,
           powerPreference: "high-performance",
         }}
         orthographic

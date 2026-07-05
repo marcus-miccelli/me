@@ -66,7 +66,12 @@ const float PI = 3.141592653589793;
  *               exp(-tightness * dphi), so the light tightens as it bends,
  *               bowing backwards in z through the sweep.
  */
-vec3 pathPoint(float u, out float dist, out float wrap, out float fork) {
+// shim scales the animated aurora perturbations (approach sway + wrap
+// shimmer): pass 1.0 for the real ribbon path, 0.0 for the smooth underlying
+// geometry used to measure curvature and width direction, so those never
+// track the fast wiggle (which would make the curvature-based width cap
+// flicker as the shimmer animates).
+vec3 pathPoint(float u, float shim, out float dist, out float wrap, out float fork) {
   float anchor = uSide < 0.0 ? PI : 0.0;
   float dir = uSide * uBranch; // turn direction around the silhouette
 
@@ -102,7 +107,7 @@ vec3 pathPoint(float u, out float dist, out float wrap, out float fork) {
     p.y +=
       (sin(x * uWaveFreq + uTime * uSpeed * 0.6 + uPhase) * uWaveAmp +
         sin(x * uWaveFreq * 2.6 - uTime * uSpeed * 0.35 + uPhase * 1.7) *
-          uWaveAmp * 0.4) * win;
+          uWaveAmp * 0.4) * win * shim;
 
     return p;
   }
@@ -144,30 +149,111 @@ vec3 pathPoint(float u, out float dist, out float wrap, out float fork) {
   // residual aurora shimmer, damped as the wrap tightens
   float shimmer = sin(dphi * uWaveFreq * 2.0 + uTime * uSpeed * 0.6 + uPhase) *
                   uWaveAmp * 0.5 * exp(-1.2 * dphi);
-  p.xy += normalize(p.xy) * shimmer;
+  p.xy += normalize(p.xy) * shimmer * shim;
 
   return p;
 }
 
+// The path is only C1 where its pieces meet: tangent-continuous, but curvature
+// jumps (0 -> -1/f at approach->fillet, then -1/f -> +1/rr at fillet->wrap,
+// which even flips sign). Those two seams per branch are the three critical
+// points seen at each fork -- the shared approach->fillet apex and the two
+// per-branch fillet->wrap corners. Convolving the centre-line with a smooth
+// GAUSSIAN kernel over arclength rounds each curvature step into a smooth
+// transition, dissolving the corners; unlike a box/triangular kernel it leaves
+// no piecewise-linear curvature kinks (which showed as faint mini-creases), so
+// the curvature is C-infinity. It leaves straight and constant-curvature runs
+// unchanged (symmetric, unit sum). shim is forwarded so the smooth geometry
+// used for curvature/width can be sampled free of the animated aurora wiggle.
+vec3 smoothPath(float u, float shim) {
+  float dJ; float wJ; float fJ;
+  const float K = 0.02;
+  // 7-tap Gaussian (sigma = 1.5 taps), weights normalised to sum 1
+  return
+    pathPoint(clamp(u - 3.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.0367 +
+    pathPoint(clamp(u - 2.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.1110 +
+    pathPoint(clamp(u - K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.2167 +
+    pathPoint(clamp(u, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.2712 +
+    pathPoint(clamp(u + K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.2167 +
+    pathPoint(clamp(u + 2.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.1110 +
+    pathPoint(clamp(u + 3.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.0367;
+}
+
 void main() {
-  float u = clamp(position.x + 0.5, 0.0, 1.0);
+  // The path is a straight off-screen approach followed by the fillet + wrap
+  // that curves, twists and bows in z around the orb. Only the curved tail
+  // needs dense sampling, but its share of the arclength swings wildly as the
+  // orb pulses -- the approach clamps to almost nothing when the orb is large,
+  // and dominates when it is small. A uniform plane (or any fixed warp) will
+  // therefore facet the bend at one pulse extreme or the other. Instead, split
+  // the columns by arclength: a small fixed fraction covers the whole straight
+  // approach, and the rest are spread UNIFORMLY over the fillet + wrap, so the
+  // bend stays densely and evenly tessellated at every scale. Every shading
+  // term is a function of the resulting path fraction (and arclength vDist),
+  // so the look is unchanged -- the mesh is only re-sampled where it matters.
+  float r0m = 1.0 + uSkim;
+  float fm = uForkRadius;
+  float am = sqrt(r0m * r0m + 2.0 * r0m * fm);
+  float totalLen = uApproachLen + fm * (PI * 0.5 - atan(fm, am)) + uWrapAngle;
+  float approachFrac = uApproachLen / max(totalLen, 1e-4);
+
+  const float APPROACH_COLS = 0.22; // column share spent on the straight run
+  float uLin = clamp(position.x + 0.5, 0.0, 1.0);
+  float u = uLin < APPROACH_COLS
+    ? (uLin / APPROACH_COLS) * approachFrac
+    : approachFrac +
+      ((uLin - APPROACH_COLS) / (1.0 - APPROACH_COLS)) * (1.0 - approachFrac);
   float v = position.y; // -1..1 across the strip
 
   float d0; float w0; float f0;
-  float d1; float w1; float f1;
-  vec3 p = pathPoint(u, d0, w0, f0);
-  vec3 p2 = pathPoint(min(u + 0.002, 1.0), d1, w1, f1);
+  // fetch the shading varyings (arclength / wrap / fork) at this station
+  pathPoint(u, 1.0, d0, w0, f0);
+  // real ribbon centre-line: C2-smoothed, with the animated aurora wiggle
+  vec3 p = smoothPath(u, 1.0);
+  // three smooth (shimmer-free) samples straddling this station, used only to
+  // read the path's underlying curvature and width direction
+  vec3 pMid = smoothPath(u, 0.0);
+  vec3 pPrev = smoothPath(max(u - 0.01, 0.0), 0.0);
+  vec3 pNext = smoothPath(min(u + 0.01, 1.0), 0.0);
 
   // screen-facing width direction: perpendicular to the projected tangent
-  vec2 tanXY = p2.xy - p.xy;
-  vec2 sideDir = length(tanXY) > 1e-5
-    ? normalize(vec2(-tanXY.y, tanXY.x))
+  vec2 e1 = pMid.xy - pPrev.xy;
+  vec2 e2 = pNext.xy - pMid.xy;
+  vec2 sideDir = length(e2) > 1e-6
+    ? normalize(vec2(-e2.y, e2.x))
     : vec2(0.0, 1.0);
 
   float widthProfile = mix(0.7, 1.0, smoothstep(0.0, 0.3, u));
   widthProfile *= exp(-uWidthDecay * w0 * uWrapAngle);
+  // Taper the width to zero over the last of the wrap so the strip ends in a
+  // point rather than a flat terminal edge; otherwise that end quad, deep in
+  // the wrap and foreshortened almost edge-on behind the orb, reads as a hard
+  // rectangular cap once the orb is large.
+  widthProfile *= 1.0 - smoothstep(0.82, 1.0, u);
+  float desiredHW = uWidth * widthProfile;
 
-  vec3 pos = p + vec3(sideDir, 0.0) * v * uWidth * widthProfile;
+  // Offset-curve safety. A flat ribbon of half-width d riding a centre-line of
+  // curvature k is an offset curve: its inner edge stretches by (1 - d*k) and,
+  // once d*k >= 1, reverses and folds into a cusp. That is the root artifact --
+  // it fires at each fork's tight fillet (k ~ 2.2, so any d > ~0.45 folds) and
+  // at the fillet->wrap inflection where the curvature flips sign, i.e. at all
+  // four forks, and the orb's pulse merely scales it up on screen. Rather than
+  // globally thinning the beam (which only walks d*k under 1), read the local
+  // curvature from the three samples (Menger curvature) and smoothly cap the
+  // half-width to ~SAFETY/k. The ribbon then keeps its full width on the
+  // straight approach and the gentle wrap and pinches only through the tight
+  // turn, so it can never fold -- the fix lives at the geometry, not a tuned
+  // width.
+  vec2 e3 = pNext.xy - pPrev.xy;
+  float cross2 = e1.x * e2.y - e1.y * e2.x;
+  float denom = length(e1) * length(e2) * length(e3);
+  float kappa = denom > 1e-8 ? 2.0 * abs(cross2) / denom : 0.0;
+
+  const float SAFETY = 0.75;
+  float x = desiredHW * kappa / SAFETY;
+  float cappedHW = desiredHW / sqrt(1.0 + x * x); // -> desiredHW as k->0, -> SAFETY/k as k->inf
+
+  vec3 pos = p + vec3(sideDir, 0.0) * v * cappedHW;
 
   vAlong = u;
   vDist = d0;
@@ -285,8 +371,20 @@ float auroraGlow(float t, vec2 shift) {
   float amp = uNoiseAmp;
   vec2 samplePos = uv * uScale;
 
+  // Procedural antialiasing. perlin3D samples at spatial frequency freq in
+  // samplePos space; one screen pixel spans fwidth(samplePos) of that space,
+  // so an octave's on-screen wavelength is ~1/(freq * px). Once that drops
+  // below a couple of pixels the octave can no longer be resolved and instead
+  // crawls/sparkles as the beam and the noise animate. Fading each octave out
+  // as it goes sub-pixel removes that shimmer while leaving the resolvable,
+  // large-scale aurora structure fully intact -- this is the flicker that mesh
+  // tessellation could never touch, because it lives in the noise, not the
+  // geometry.
+  float px = max(max(fwidth(samplePos.x), fwidth(samplePos.y)), 1e-5);
+
   for (float i = 0.0; i < 3.0; i += 1.0) {
-    noiseVal += perlin3D(amp, freq, samplePos.x, samplePos.y, t);
+    float aa = smoothstep(0.7, 0.3, freq * px);
+    noiseVal += perlin3D(amp * aa, freq, samplePos.x, samplePos.y, t);
     amp *= uOctaveDecay;
     freq *= 2.0;
   }
@@ -597,7 +695,7 @@ export default function AuroraBeam({
   return (
     <group>
       <mesh ref={meshTopRef} renderOrder={2} frustumCulled={false}>
-        <planeGeometry args={[1, 2, 220, 1]} />
+        <planeGeometry args={[1, 2, 240, 12]} />
         <shaderMaterial
           ref={materialTopRef}
           uniforms={uniformsTop}
@@ -611,7 +709,7 @@ export default function AuroraBeam({
         />
       </mesh>
       <mesh renderOrder={2} frustumCulled={false}>
-        <planeGeometry args={[1, 2, 220, 1]} />
+        <planeGeometry args={[1, 2, 240, 12]} />
         <shaderMaterial
           ref={materialBottomRef}
           uniforms={uniformsBottom}
