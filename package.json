@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "lint:fix": "oxlint --fix",
     "format": "prettier --write .",
-    "check": "npm run lint && prettier --check . && tsc --noEmit"
+    "check": "npm run lint && prettier --check . && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -28,6 +30,7 @@
     "oxlint": "^1.72.0",
     "prettier": "^3.9.4",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^3.2.6"
   }
 }

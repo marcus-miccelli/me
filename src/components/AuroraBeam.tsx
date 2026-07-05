@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { buildBeamCurve } from "./aurora/curve";
+import { makeCurveTexture } from "./aurora/curveTexture";
 
 /**
  * AuroraBeam
@@ -13,18 +15,19 @@ import * as THREE from "three";
  * rotation.z and its pulsing scale automatically — the beam anchors stay
  * glued to the orb-local points (-1, 0, 0) and (1, 0, 0) forever.
  *
- * Path model (orb-local space, computed in the vertex shader). Each beam is
- * built from TWO ribbon strips sharing the same approach:
+ * Path model (orb-local space). Each beam is built from TWO ribbon strips
+ * sharing the same approach:
  *   1. Approach: a straight run along ±x from beyond the screen edge to the
- *      sphere, with a gentle animated aurora wave.
- *   2. Fork: a circular fillet (radius forkRadius) turns each strip
- *      tangentially onto the rim — one up, one down — with true tangent
- *      continuity, so the ribbon never folds at the impact point.
- *   3. Wrap: each strip hugs the silhouette — an arc just outside the rim
- *      whose standoff decays as exp(-tightness * dphi), so the light
- *      visibly TIGHTENS the further it bends. Top and bottom arcs are
- *      exactly symmetric, and each arc bows backwards in z (wrapDepth) so
- *      the bend lives in 3D and is depth-tested against the orb.
+ *      sphere, with a gentle animated aurora wave. Only its length varies with
+ *      the orb's pulse; it is the sole per-frame part of the path.
+ *   2. Curved region (fork + wrap): a single C2 curve baked on the CPU from a
+ *      continuous curvature profile (see aurora/curve.ts) and sampled from a
+ *      texture in the vertex shader. A reverse-curve transition flares each
+ *      strip out, through an inflection, and tangentially onto the rim — one up,
+ *      one down — with continuous curvature, so the fork has no critical points.
+ *      The wrap then hugs the silhouette, its standoff decaying so the light
+ *      TIGHTENS as it bends; z-bow (wrapDepth) and shimmer are added analytically
+ *      on top of the baked curve.
  */
 
 const vertexShader = /* glsl */ `
@@ -34,9 +37,11 @@ uniform float uSide;        // -1 = beam from the left, +1 = beam from the right
 uniform float uBranch;      // +1 = arcs over the top, -1 = arcs under the bottom
 uniform float uApproachLen; // straight run length (orb-local units), set per-frame from the viewport
 uniform float uWrapAngle;   // how far each fork wraps around the rim (radians)
-uniform float uSkim;        // initial standoff above the surface (fraction of radius)
-uniform float uTightness;   // exp decay of the standoff -> "light tightens" as it bends
-uniform float uForkRadius;  // fillet radius of the fork turn (fraction of orb radius)
+uniform sampler2D uCurveTex;      // baked curved centre-line: (x,y,theta,kappa)/texel
+uniform float uCurveSamples;      // texel count N
+uniform float uCurveLength;       // total curved arclength (transition + wrap)
+uniform float uTransitionLen;     // transition arclength L_t
+uniform float uApproachEndRadius; // radius where the straight approach ends
 uniform float uWrapDepth;   // how far the arc bows behind the orb in z
 uniform float uWidth;       // ribbon half-width (fraction of radius)
 uniform float uWidthDecay;  // width shrink per radian of wrap
@@ -54,129 +59,89 @@ varying vec3 vLocal;   // orb-local position, for analytic occlusion
 const float PI = 3.141592653589793;
 
 /*
- * The path is C1 (tangent-continuous) by construction, in three pieces
- * parameterised by a single arclength D:
- *
- *   1. Straight: radial run from off-screen down to radius (r0 + f).
- *   2. Fillet:  a quarter-circle of radius f that turns the radial heading
- *               tangentially — this IS the fork; the top strip turns one
- *               way, the bottom strip the other. (A hard switch here was
- *               what folded the ribbon into the flickering square.)
- *   3. Arc:     rim-hugging sweep whose standoff decays as
- *               exp(-tightness * dphi), so the light tightens as it bends,
- *               bowing backwards in z through the sweep.
+ * The centre-line is one arclength curve D in two pieces:
+ *   1. Straight approach: radial run from off-screen down to radius
+ *      uApproachEndRadius (only this length varies with the orb pulse).
+ *   2. Curved region (transition + wrap): a single C2 curve baked on the CPU
+ *      from a continuous curvature profile and sampled from uCurveTex as
+ *      (x, y, theta, kappa) in the canonical (R,T) frame. The reverse-curve
+ *      transition (flare out, through an inflection, into the rim) replaces the
+ *      old circular fillet; curvature is continuous end-to-end, so the fork has
+ *      no critical points. z-bow and shimmer stay analytic on top.
  */
-// shim scales the animated aurora perturbations (approach sway + wrap
-// shimmer): pass 1.0 for the real ribbon path, 0.0 for the smooth underlying
-// geometry used to measure curvature and width direction, so those never
-// track the fast wiggle (which would make the curvature-based width cap
-// flicker as the shimmer animates).
-vec3 pathPoint(float u, float shim, out float dist, out float wrap, out float fork) {
+
+// Manual linear fetch from the 1xN curve texture (NearestFilter -> lerp by hand).
+vec4 sampleCurve(float arc) {
+  float uu = clamp(arc / max(uCurveLength, 1e-4), 0.0, 1.0);
+  float fx = uu * (uCurveSamples - 1.0);
+  float i0 = floor(fx);
+  float fr = fx - i0;
+  float t0 = (i0 + 0.5) / uCurveSamples;
+  float t1 = (i0 + 1.5) / uCurveSamples;
+  vec4 c0 = texture2D(uCurveTex, vec2(t0, 0.5));
+  vec4 c1 = texture2D(uCurveTex, vec2(min(t1, 1.0), 0.5));
+  return mix(c0, c1, fr);
+}
+
+// shim scales the animated aurora perturbations (approach sway + wrap shimmer);
+// pass 0.0 to read the smooth underlying geometry. Out: arclength dist, wrap
+// progress, fork progress, curvature kappa, and the screen-plane width dir.
+vec3 pathPoint(float u, float shim, out float dist, out float wrap,
+               out float fork, out float kappa, out vec2 sideDir) {
   float anchor = uSide < 0.0 ? PI : 0.0;
-  float dir = uSide * uBranch; // turn direction around the silhouette
+  float dir = uSide * uBranch;
+  vec2 R = vec2(cos(anchor), sin(anchor));
+  vec2 T = dir * vec2(-sin(anchor), cos(anchor));
 
-  float r0 = 1.0 + uSkim;
-  float f = uForkRadius;
-
-  // classical line-circle fillet: centre sits at distance f from the radial
-  // line AND at distance (r0 + f) from the origin, so it is tangent to BOTH
-  // the incoming straight run and the rim circle
-  float a = sqrt(r0 * r0 + 2.0 * r0 * f); // where the straight run ends
-  float delta = atan(f, a);               // rim angle of the fillet exit
-  float gamma = PI * 0.5 - delta;         // fillet sweep
-  float filletLen = f * gamma;
-
-  float total = uApproachLen + filletLen + uWrapAngle;
+  float total = uApproachLen + uCurveLength;
   float D = u * total;
   dist = D;
 
-  vec2 R = vec2(cos(anchor), sin(anchor));        // radial unit (outwards)
-  vec2 T = dir * vec2(-sin(anchor), cos(anchor)); // turn-side tangential unit
-
-  // ---- 1. straight approach from off-screen ----
   if (D < uApproachLen) {
-    float x = a + (uApproachLen - D);
+    // straight approach along +R, from off-screen down to uApproachEndRadius
+    float x = uApproachEndRadius + (uApproachLen - D);
     wrap = 0.0;
     fork = 0.0;
-
+    kappa = 0.0;
+    // width dir must match the curve's at the seam: the curve starts at heading
+    // PI (sideDir = -sin(PI)R + cos(PI)T = -T); mismatching it flips the ribbon
+    // 180 deg and bowties the fork.
+    sideDir = -T;
     vec3 p = vec3(x * R, 0.0);
-
-    // aurora sway, faded out before the fillet so the turn stays clean
-    float s = D / max(uApproachLen, 1e-4);
-    float win = smoothstep(0.0, 0.25, s) * (1.0 - smoothstep(0.55, 0.9, s));
-    p.y +=
-      (sin(x * uWaveFreq + uTime * uSpeed * 0.6 + uPhase) * uWaveAmp +
-        sin(x * uWaveFreq * 2.6 - uTime * uSpeed * 0.35 + uPhase * 1.7) *
-          uWaveAmp * 0.4) * win * shim;
-
+    float sN = D / max(uApproachLen, 1e-4);
+    float win = smoothstep(0.0, 0.25, sN) * (1.0 - smoothstep(0.55, 0.9, sN));
+    p.y += (sin(x * uWaveFreq + uTime * uSpeed * 0.6 + uPhase) * uWaveAmp +
+            sin(x * uWaveFreq * 2.6 - uTime * uSpeed * 0.35 + uPhase * 1.7) *
+              uWaveAmp * 0.4) * win * shim;
     return p;
   }
 
-  // ---- 2. fillet: tangent turn from the line onto the rim ----
-  if (D < uApproachLen + filletLen) {
-    float beta = (D - uApproachLen) / max(f, 1e-4); // 0..gamma
-    wrap = 0.0;
-    fork = beta / max(gamma, 1e-4);
+  // curved region: sample the baked (cx, cy, theta, kappa)
+  float arc = D - uApproachLen;
+  vec4 c = sampleCurve(arc);
+  float th = c.z;
+  kappa = c.w;
 
-    // in the (R, T) basis: centre at (a, f), sweeping from the line-tangency
-    // point towards the rim-tangency point
-    float theta = -PI * 0.5 - beta;
-    vec2 pc = vec2(a, f) + f * vec2(cos(theta), sin(theta));
+  wrap = clamp((arc - uTransitionLen) /
+               max(uCurveLength - uTransitionLen, 1e-4), 0.0, 1.0);
+  fork = smoothstep(0.0, uTransitionLen, arc);
 
-    return vec3(pc.x * R + pc.y * T, 0.0);
-  }
+  vec3 p = vec3(c.x * R + c.y * T, 0.0);
 
-  // ---- 3. rim-hugging arc ----
-  float dphi = D - uApproachLen - filletLen;
-  wrap = clamp(dphi / max(uWrapAngle, 1e-4), 0.0, 1.0);
-  fork = 1.0;
-
-  float psi = anchor + dir * (delta + dphi);
-
-  // standoff tightens exponentially as the light bends; the eased start
-  // keeps the decay's initial slope at zero so the fillet exit stays smooth
-  float decay = exp(-uTightness * dphi * smoothstep(0.0, 0.5, dphi));
-  float rr = 1.0 + uSkim * decay;
-
-  vec3 p = vec3(rr * cos(psi), rr * sin(psi), 0.0);
-
-  // the bend bows backwards: strongest xz interaction mid-arc, and always
-  // behind the orb so depth-testing stays honest; sin^2 eases in and out so
-  // the dive into z doesn't kink the path at the fillet exit
-  float bow = sin(min(dphi, PI));
+  // analytic z-bow from wrap progress
+  float phi = wrap * uWrapAngle;
+  float bow = sin(min(phi, PI));
   p.z = -uWrapDepth * bow * bow;
 
-  // residual aurora shimmer, damped as the wrap tightens
-  float shimmer = sin(dphi * uWaveFreq * 2.0 + uTime * uSpeed * 0.6 + uPhase) *
-                  uWaveAmp * 0.5 * exp(-1.2 * dphi);
+  // heading -> orb-local width dir (tangent rotated +90 in the R,T plane)
+  sideDir = -sin(th) * R + cos(th) * T;
+
+  // residual aurora shimmer, damped as the wrap tightens (radial)
+  float shimmer = sin(arc * uWaveFreq * 2.0 + uTime * uSpeed * 0.6 + uPhase) *
+                  uWaveAmp * 0.5 * exp(-1.2 * phi);
   p.xy += normalize(p.xy) * shimmer * shim;
 
   return p;
-}
-
-// The path is only C1 where its pieces meet: tangent-continuous, but curvature
-// jumps (0 -> -1/f at approach->fillet, then -1/f -> +1/rr at fillet->wrap,
-// which even flips sign). Those two seams per branch are the three critical
-// points seen at each fork -- the shared approach->fillet apex and the two
-// per-branch fillet->wrap corners. Convolving the centre-line with a smooth
-// GAUSSIAN kernel over arclength rounds each curvature step into a smooth
-// transition, dissolving the corners; unlike a box/triangular kernel it leaves
-// no piecewise-linear curvature kinks (which showed as faint mini-creases), so
-// the curvature is C-infinity. It leaves straight and constant-curvature runs
-// unchanged (symmetric, unit sum). shim is forwarded so the smooth geometry
-// used for curvature/width can be sampled free of the animated aurora wiggle.
-vec3 smoothPath(float u, float shim) {
-  float dJ; float wJ; float fJ;
-  const float K = 0.02;
-  // 7-tap Gaussian (sigma = 1.5 taps), weights normalised to sum 1
-  return
-    pathPoint(clamp(u - 3.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.0367 +
-    pathPoint(clamp(u - 2.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.1110 +
-    pathPoint(clamp(u - K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.2167 +
-    pathPoint(clamp(u, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.2712 +
-    pathPoint(clamp(u + K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.2167 +
-    pathPoint(clamp(u + 2.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.1110 +
-    pathPoint(clamp(u + 3.0 * K, 0.0, 1.0), shim, dJ, wJ, fJ) * 0.0367;
 }
 
 void main() {
@@ -191,10 +156,7 @@ void main() {
   // bend stays densely and evenly tessellated at every scale. Every shading
   // term is a function of the resulting path fraction (and arclength vDist),
   // so the look is unchanged -- the mesh is only re-sampled where it matters.
-  float r0m = 1.0 + uSkim;
-  float fm = uForkRadius;
-  float am = sqrt(r0m * r0m + 2.0 * r0m * fm);
-  float totalLen = uApproachLen + fm * (PI * 0.5 - atan(fm, am)) + uWrapAngle;
+  float totalLen = uApproachLen + uCurveLength;
   float approachFrac = uApproachLen / max(totalLen, 1e-4);
 
   const float APPROACH_COLS = 0.22; // column share spent on the straight run
@@ -205,53 +167,26 @@ void main() {
       ((uLin - APPROACH_COLS) / (1.0 - APPROACH_COLS)) * (1.0 - approachFrac);
   float v = position.y; // -1..1 across the strip
 
-  float d0; float w0; float f0;
-  // fetch the shading varyings (arclength / wrap / fork) at this station
-  pathPoint(u, 1.0, d0, w0, f0);
-  // real ribbon centre-line: C2-smoothed, with the animated aurora wiggle
-  vec3 p = smoothPath(u, 1.0);
-  // three smooth (shimmer-free) samples straddling this station, used only to
-  // read the path's underlying curvature and width direction
-  vec3 pMid = smoothPath(u, 0.0);
-  vec3 pPrev = smoothPath(max(u - 0.01, 0.0), 0.0);
-  vec3 pNext = smoothPath(min(u + 0.01, 1.0), 0.0);
-
-  // screen-facing width direction: perpendicular to the projected tangent
-  vec2 e1 = pMid.xy - pPrev.xy;
-  vec2 e2 = pNext.xy - pMid.xy;
-  vec2 sideDir = length(e2) > 1e-6
-    ? normalize(vec2(-e2.y, e2.x))
-    : vec2(0.0, 1.0);
+  // one sample of the C2 centre-line: position (with shimmer), plus the exact
+  // baked curvature and width direction (no finite differences needed)
+  float d0; float w0; float f0; float k0; vec2 sideDir;
+  vec3 p = pathPoint(u, 1.0, d0, w0, f0, k0, sideDir);
 
   float widthProfile = mix(0.7, 1.0, smoothstep(0.0, 0.3, u));
   widthProfile *= exp(-uWidthDecay * w0 * uWrapAngle);
   // Taper the width to zero over the last of the wrap so the strip ends in a
-  // point rather than a flat terminal edge; otherwise that end quad, deep in
-  // the wrap and foreshortened almost edge-on behind the orb, reads as a hard
-  // rectangular cap once the orb is large.
+  // point rather than a flat terminal edge behind the orb.
   widthProfile *= 1.0 - smoothstep(0.82, 1.0, u);
   float desiredHW = uWidth * widthProfile;
 
-  // Offset-curve safety. A flat ribbon of half-width d riding a centre-line of
-  // curvature k is an offset curve: its inner edge stretches by (1 - d*k) and,
-  // once d*k >= 1, reverses and folds into a cusp. That is the root artifact --
-  // it fires at each fork's tight fillet (k ~ 2.2, so any d > ~0.45 folds) and
-  // at the fillet->wrap inflection where the curvature flips sign, i.e. at all
-  // four forks, and the orb's pulse merely scales it up on screen. Rather than
-  // globally thinning the beam (which only walks d*k under 1), read the local
-  // curvature from the three samples (Menger curvature) and smoothly cap the
-  // half-width to ~SAFETY/k. The ribbon then keeps its full width on the
-  // straight approach and the gentle wrap and pinches only through the tight
-  // turn, so it can never fold -- the fix lives at the geometry, not a tuned
-  // width.
-  vec2 e3 = pNext.xy - pPrev.xy;
-  float cross2 = e1.x * e2.y - e1.y * e2.x;
-  float denom = length(e1) * length(e2) * length(e3);
-  float kappa = denom > 1e-8 ? 2.0 * abs(cross2) / denom : 0.0;
-
+  // Offset-curve safety: a flat ribbon of half-width d on a centre-line of
+  // curvature k folds (inner edge reverses) once d*k >= 1. Smoothly cap the
+  // half-width to ~SAFETY/k from the exact baked curvature, so the ribbon keeps
+  // full width on straight/gentle runs and pinches through the tight flare.
   const float SAFETY = 0.75;
-  float x = desiredHW * kappa / SAFETY;
-  float cappedHW = desiredHW / sqrt(1.0 + x * x); // -> desiredHW as k->0, -> SAFETY/k as k->inf
+  float kappa = abs(k0);
+  float xk = desiredHW * kappa / SAFETY;
+  float cappedHW = desiredHW / sqrt(1.0 + xk * xk);
 
   vec3 pos = p + vec3(sideDir, 0.0) * v * cappedHW;
 
@@ -497,8 +432,9 @@ type AuroraBeamProps = {
   wrapTightness?: number;
   /** Initial standoff above the surface, as a fraction of the orb radius. */
   skim?: number;
-  /** Fillet radius of the fork turn, as a fraction of the orb radius. */
-  forkRadius?: number;
+  /** Flare coefficient of the C2 reverse-curve fork: higher = tighter/more
+   *  outward flare. ~3 reproduces the old fillet's tightness. */
+  flareDepth?: number;
   /** How far the arcs bow behind the orb in z — the xz-plane bend depth. */
   wrapDepth?: number;
   /** Ribbon half-width as a fraction of the orb radius. */
@@ -539,7 +475,7 @@ export default function AuroraBeam({
   wrapAngle = 130,
   wrapTightness = 1.0,
   skim = 0.06,
-  forkRadius = 0.45,
+  flareDepth = 3.0,
   wrapDepth = 0.35,
   beamWidth = 0.5,
   widthDecay = 0.14,
@@ -559,6 +495,24 @@ export default function AuroraBeam({
 
   const { gl, viewport } = useThree();
 
+  // Bake the C2 curved centre-line (transition + wrap) once; it is pulse-
+  // invariant, so it only re-runs when a shaping prop changes.
+  const CURVE_SAMPLES = 128;
+  const curve = useMemo(
+    () =>
+      buildBeamCurve({
+        skim,
+        wrapAngleRad: wrapAngle * DEG,
+        tightness: wrapTightness,
+        flareDepth,
+        samples: CURVE_SAMPLES,
+      }),
+    [skim, wrapAngle, wrapTightness, flareDepth],
+  );
+  const curveTexture = useMemo(() => makeCurveTexture(curve), [curve]);
+  // free the previous GPU texture when a prop change re-bakes the curve
+  useEffect(() => () => curveTexture.dispose(), [curveTexture]);
+
   const makeUniforms = (branch: number) => ({
     uTime: { value: 0 },
     uSpeed: { value: speed },
@@ -566,9 +520,11 @@ export default function AuroraBeam({
     uBranch: { value: branch },
     uApproachLen: { value: 6 },
     uWrapAngle: { value: wrapAngle * DEG },
-    uSkim: { value: skim },
-    uTightness: { value: wrapTightness },
-    uForkRadius: { value: forkRadius },
+    uCurveTex: { value: curveTexture },
+    uCurveSamples: { value: CURVE_SAMPLES },
+    uCurveLength: { value: curve.curveLength },
+    uTransitionLen: { value: curve.transitionLength },
+    uApproachEndRadius: { value: curve.a },
     uWrapDepth: { value: wrapDepth },
     uWidth: { value: beamWidth },
     uWidthDecay: { value: widthDecay },
@@ -640,11 +596,8 @@ export default function AuroraBeam({
     const halfH = viewport.height / 2;
     const reach = Math.hypot(halfW, halfH) + offscreenMargin;
 
-    // the straight run ends where the fillet begins, at radius
-    // sqrt(r0^2 + 2 r0 f) — mirror of the vertex shader's `a`
-    const r0 = 1 + skim;
-    const filletStart = Math.sqrt(r0 * r0 + 2 * r0 * forkRadius);
-    const approachLen = Math.max(reach / s - filletStart, 0.25);
+    // the straight run ends where the baked curve begins, at radius curve.a
+    const approachLen = Math.max(reach / s - curve.a, 0.25);
 
     // smoothed pointer, matching Soft Aurora's easing
     if (enableMouseInteraction) {
@@ -668,9 +621,10 @@ export default function AuroraBeam({
       // keep tweakable props live (ColorBends convention)
       material.uniforms.uSpeed.value = speed;
       material.uniforms.uWrapAngle.value = wrapAngle * DEG;
-      material.uniforms.uSkim.value = skim;
-      material.uniforms.uTightness.value = wrapTightness;
-      material.uniforms.uForkRadius.value = forkRadius;
+      material.uniforms.uCurveTex.value = curveTexture;
+      material.uniforms.uCurveLength.value = curve.curveLength;
+      material.uniforms.uTransitionLen.value = curve.transitionLength;
+      material.uniforms.uApproachEndRadius.value = curve.a;
       material.uniforms.uWrapDepth.value = wrapDepth;
       material.uniforms.uWidth.value = beamWidth;
       material.uniforms.uWidthDecay.value = widthDecay;
