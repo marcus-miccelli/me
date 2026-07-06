@@ -286,6 +286,7 @@ export default function Orb() {
     material.uniforms.uBaseColor.value.lerpColors(BASE_REG, BASE_HOT, bass * 0.5);
     // film grain lifts with treble
     material.uniforms.uNoise.value = BASE.noise + treble * 0.2;
+    material.uniforms.uBandRadius.value = BAND.radius + bass * 0.2
   });
 
   return (

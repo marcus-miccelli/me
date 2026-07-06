@@ -267,7 +267,7 @@ export default function ColorBends({
     const deg = (rotation % 360) + autoRotate * elapsed;
     const rad = (deg * Math.PI) / 180;
 
-    const { level, bass, mid, treble } = sampleAudio();
+    const { level, bass, treble } = sampleAudio();
 
     material.uniforms.uTime.value = elapsed;
     material.uniforms.uCanvas.value.set(size.width, size.height);
