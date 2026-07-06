@@ -242,7 +242,7 @@ export default function GravityCore() {
     [starTex],
   );
 
-  useFrame(({ clock }, rawDelta) => {
+  useFrame(({ }, rawDelta) => {
     const dt = Math.min(rawDelta, 1 / 30);
     const { centerZ, scale, radius } = getOrbState();
     const anchorZ = centerZ + scale * radius;
