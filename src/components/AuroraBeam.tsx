@@ -3,6 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { buildBeamCurve } from "./aurora/curve";
 import { makeCurveTexture } from "./aurora/curveTexture";
+import { sampleAudio } from "../audio/audioBus";
 
 /**
  * AuroraBeam
@@ -606,6 +607,8 @@ export default function AuroraBeam({
       mouseCurrent.current.set(0.5, 0.5);
     }
 
+    const { level, bass, mid, treble } = sampleAudio();
+    
     for (const material of [
       materialTopRef.current,
       materialBottomRef.current,
@@ -626,20 +629,20 @@ export default function AuroraBeam({
       material.uniforms.uTransitionLen.value = curve.transitionLength;
       material.uniforms.uApproachEndRadius.value = curve.a;
       material.uniforms.uWrapDepth.value = wrapDepth;
-      material.uniforms.uWidth.value = beamWidth;
+      material.uniforms.uWidth.value = beamWidth + 0.3 * (level + 1 * bass);
       material.uniforms.uWidthDecay.value = widthDecay;
-      material.uniforms.uWaveAmp.value = waveAmplitude;
+      material.uniforms.uWaveAmp.value = waveAmplitude + (0.5 * treble);
       material.uniforms.uWaveFreq.value = waveFrequency;
       material.uniforms.uScale.value = scale;
-      material.uniforms.uBrightness.value = brightness;
-      material.uniforms.uNoiseFreq.value = noiseFrequency;
+      material.uniforms.uBrightness.value = brightness + (0.5 * treble);
+      material.uniforms.uNoiseFreq.value = noiseFrequency + 0.1 * (level + 1 * mid);
       material.uniforms.uNoiseAmp.value = noiseAmplitude;
       material.uniforms.uBandHeight.value = bandHeight;
       material.uniforms.uBandSpread.value = bandSpread;
       material.uniforms.uOctaveDecay.value = octaveDecay;
       material.uniforms.uLayerOffset.value = layerOffset;
       material.uniforms.uColorSpeed.value = colorSpeed;
-      material.uniforms.uWrapGlow.value = wrapGlow;
+      material.uniforms.uWrapGlow.value = wrapGlow + 0.1 * (level + 1 * mid);
       material.uniforms.uSoftness.value = softness;
       material.uniforms.uMouseInfluence.value = mouseInfluence;
       material.uniforms.uEnableMouse.value = enableMouseInteraction;

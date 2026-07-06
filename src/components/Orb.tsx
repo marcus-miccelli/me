@@ -2,6 +2,7 @@ import { useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import AuroraBeam from "./AuroraBeam";
+import { sampleAudio } from "../audio/audioBus";
 
 const vertexShader = `
 varying vec3 vNormal;
@@ -29,6 +30,11 @@ uniform float uPixelSize;
 uniform float uNoise;
 uniform vec3 uBaseColor;
 uniform vec3 uWaveColor;
+uniform float uBandRadius;   // radial position of the rim ring (1.0 = outline)
+uniform float uBandWidth;    // half-thickness of the ring
+uniform float uBandSoftness; // edge feather distance
+uniform float uBandStrength; // 0..1 how black the band gets
+uniform float uBandFuzz;     // noise added to the edge so it dissolves
 
 varying vec3 vNormal;
 varying vec3 vObjectNormal;
@@ -145,32 +151,81 @@ void main() {
   value = clamp(value, 0.0, 0.2);
 
   vec3 col = mix(uBaseColor, uWaveColor, value);
+
+  // --- rim ring: dark fuzzy circle tracing the sphere's outline ----------
+  // radial ~ 1 at the silhouette, ~0 at the disc centre. Ring centred at
+  // uBandRadius; sit it just inside the outline so it reads against the bright
+  // surface (the outer rim is already blacked by outerBlack above).
+  // Dissolved with surface noise so the edges fuzz out instead of hard-cutting.
+  float ringDist = abs(radial - uBandRadius);
+  ringDist += (waves - 0.5) * uBandFuzz;
+  ringDist += (grain - 0.5) * uBandFuzz * 0.5;
+  // 1.0 on the ring, feathering to 0.0 past width + softness
+  float band = 1.0 - smoothstep(uBandWidth, uBandWidth + uBandSoftness, ringDist);
+  // push the ring toward black
+  col *= 1.0 - band * uBandStrength;
+
   gl_FragColor = vec4(col, 1.0);
 }
 `;
+
+// audio-reactive base-colour endpoints (bass lerps BASE_CALM -> BASE_HOT)
+const BASE_REG = new THREE.Color("#ffffff")
+const BASE_CALM = new THREE.Color("#000000");
+const BASE_HOT = new THREE.Color("#e100ff");
+
+// resting (quiet) values for the audio-modulated uniforms. Audio adds on top of
+// these each frame, so the uniform returns to BASE when the track is silent.
+// Single source of truth: the uniforms below are initialised from BASE too.
+const BASE = {
+  waveSpeed: 0.25,
+  waveFrequency: 2.1,
+  waveAmplitude: 0.43,
+  colorNum: 32.4,
+  pixelSize: 1.0,
+  noise: 0.1,
+};
+
+// dark fuzzy ring tracing the sphere's outline. radius is the radial position
+// (1.0 = exact silhouette; lower pulls it inward onto the bright surface so it
+// stays visible against the already-black outer rim). width/softness/fuzz
+// shape the fuzzy dark edges, strength = how black it gets (1 = pure black).
+const BAND = {
+  radius: 1.0,
+  width: 0.01,
+  softness: 1,
+  strength: 1,
+  fuzz: 0.1,
+};
 
 export default function Orb() {
   const myMesh = useRef<THREE.Mesh>(null!);
   const materialRef = useRef<THREE.ShaderMaterial>(null!);
   const groupRef = useRef<THREE.Group>(null!);
+  const audioTime = useRef(0); // audio-accelerated clock for uTime
   const { viewport } = useThree();
 
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
-      uWaveSpeed: { value: 0.25 },
-      uWaveFrequency: { value: 2.1 },
-      uWaveAmplitude: { value: 0.43 },
-      uColorNum: { value: 32.4 },
-      uPixelSize: { value: 1.0 },
-      uNoise: { value: 0.10 },
-      uBaseColor: { value: new THREE.Color("#ffffff") },
+      uWaveSpeed: { value: BASE.waveSpeed },
+      uWaveFrequency: { value: BASE.waveFrequency },
+      uWaveAmplitude: { value: BASE.waveAmplitude },
+      uColorNum: { value: BASE.colorNum },
+      uPixelSize: { value: BASE.pixelSize },
+      uNoise: { value: BASE.noise },
+      uBaseColor: { value: BASE_REG.clone() },
       uWaveColor: { value: new THREE.Color("#000000") },
+      uBandRadius: { value: BAND.radius },
+      uBandWidth: { value: BAND.width },
+      uBandSoftness: { value: BAND.softness },
+      uBandStrength: { value: BAND.strength },
+      uBandFuzz: { value: BAND.fuzz },
     }),
     [],
   );
 
-  useFrame(({ clock, camera }) => {
+  useFrame(({ clock, camera }, delta) => {
     const mesh = myMesh.current;
     const material = materialRef.current;
 
@@ -187,7 +242,8 @@ export default function Orb() {
     const avg = (max + min) / 2;
     const mid = (max - min) / 2;
 
-    const scale = avg + Math.cos(t/8) * mid;
+    const { level, bass, treble } = sampleAudio();
+    const scale = avg + Math.cos(t / 8) * mid;
 
     mesh.scale.setScalar(scale);
 
@@ -197,7 +253,17 @@ export default function Orb() {
 
     mesh.rotation.z += 0.001;
 
-    material.uniforms.uTime.value = t;
+    // --- audio-reactive uniforms: BASE resting value + audio on top ---
+    // time: the swirl + dither animation speeds up with overall loudness
+    audioTime.current += delta * (1.0 + level * 2.0);
+    material.uniforms.uTime.value = audioTime.current;
+    // wave amplitude: fbm detail lifts with treble
+    material.uniforms.uWaveAmplitude.value = BASE.waveAmplitude + treble * 0.1;
+    // wave colour: BASE_CALM when quiet, toward BASE_HOT on bass
+    material.uniforms.uWaveColor.value.lerpColors(BASE_CALM, BASE_HOT, bass);
+    material.uniforms.uBaseColor.value.lerpColors(BASE_REG, BASE_HOT, bass * 0.5);
+    // film grain lifts with treble
+    material.uniforms.uNoise.value = BASE.noise + treble * 0.2;
   });
 
   return (

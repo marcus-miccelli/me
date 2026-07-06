@@ -1,6 +1,7 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { sampleAudio } from "../audio/audioBus";
 
 const MAX_COLORS = 8 as const;
 const POINTER_SMOOTHING = 8;
@@ -266,6 +267,8 @@ export default function ColorBends({
     const deg = (rotation % 360) + autoRotate * elapsed;
     const rad = (deg * Math.PI) / 180;
 
+    const { level, bass, mid, treble } = sampleAudio();
+
     material.uniforms.uTime.value = elapsed;
     material.uniforms.uCanvas.value.set(size.width, size.height);
     material.uniforms.uRot.value.set(Math.cos(rad), Math.sin(rad));
@@ -274,13 +277,13 @@ export default function ColorBends({
     material.uniforms.uSpeed.value = speed;
     material.uniforms.uScale.value = scale;
     material.uniforms.uFrequency.value = frequency;
-    material.uniforms.uWarpStrength.value = warpStrength;
+    material.uniforms.uWarpStrength.value = warpStrength + (0.001 * bass);
     material.uniforms.uMouseInfluence.value = mouseInfluence;
     material.uniforms.uParallax.value = parallax;
-    material.uniforms.uNoise.value = noise;
+    material.uniforms.uNoise.value = noise - (1 * level + 2 * treble);
     material.uniforms.uIterations.value = iterations;
-    material.uniforms.uIntensity.value = intensity;
-    material.uniforms.uBandWidth.value = bandWidth;
+    material.uniforms.uIntensity.value = intensity + (3 * level + 5 * bass);
+    material.uniforms.uBandWidth.value = bandWidth + (3 * level + 5 * bass);
     material.uniforms.uTransparent.value = transparent ? 1 : 0;
   });
 
