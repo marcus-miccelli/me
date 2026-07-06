@@ -104,6 +104,17 @@ function follow(cur: number, target: number, dt: number): number {
  * Read the current spectrum into contrast-expanded, envelope-followed bands
  * (0..1). Cheap; safe to call multiple times per frame. Zeros until audio plays.
  */
+/**
+ * Raw FFT magnitude spectrum (0..255 per bin, low->high frequency). Returns the
+ * live analyser bins, or an empty array until audio plays. Cheap; the array is
+ * reused, so copy it if you need to retain it across frames.
+ */
+export function sampleSpectrum(): Uint8Array {
+  if (!analyser) return freq;
+  analyser.getByteFrequencyData(freq);
+  return freq;
+}
+
 export function sampleAudio(): AudioBands {
   if (!analyser) return bands;
   analyser.getByteFrequencyData(freq);

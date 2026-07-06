@@ -3,6 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import AuroraBeam from "./AuroraBeam";
 import { sampleAudio } from "../audio/audioBus";
+import { setOrbState } from "./gravity/orbBus";
 
 const vertexShader = `
 varying vec3 vNormal;
@@ -265,7 +266,7 @@ export default function Orb() {
     const mid = (max - min) / 2;
 
     const { level, bass, treble } = sampleAudio();
-    const scale = avg + Math.cos(t / 8) * mid;
+    const scale = avg + Math.cos(t / 12) * mid;
 
     mesh.scale.setScalar(scale);
 
@@ -274,6 +275,9 @@ export default function Orb() {
       camera.position.z - (scale * radius + camera.near + padding);
 
     mesh.rotation.z += 0.001;
+
+    // publish live orb state so GravityCore can anchor to the near face
+    setOrbState(mesh.position.z, scale, radius);
 
     // --- audio-reactive uniforms: BASE resting value + audio on top ---
     // time: the swirl + dither animation speeds up with overall loudness
