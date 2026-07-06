@@ -35,6 +35,8 @@ uniform float uBandWidth;    // half-thickness of the ring
 uniform float uBandSoftness; // edge feather distance
 uniform float uBandStrength; // 0..1 how black the band gets
 uniform float uBandFuzz;     // noise added to the edge so it dissolves
+uniform float uEdgeStart;    // radial where the sphere starts fading to transparent
+uniform float uEdgeFuzz;     // noise added to the fade so the edge dissolves
 
 varying vec3 vNormal;
 varying vec3 vObjectNormal;
@@ -165,7 +167,17 @@ void main() {
   // push the ring toward black
   col *= 1.0 - band * uBandStrength;
 
-  gl_FragColor = vec4(col, 1.0);
+  // --- edge dissolve: fade the visible rim into the background -----------
+  // radial ~ 1 at the silhouette. Push radial outward with noise so the fade
+  // line is ragged, then fade alpha to 0 toward the outline. Backfaces are
+  // culled (we only ever see the near hemisphere), so this reveals the
+  // background rather than the inside of the sphere.
+  float edgeNoise = (grain - 0.5) * uEdgeFuzz;
+  edgeNoise += (fineGrain - 0.5) * uEdgeFuzz * 0.6;
+  edgeNoise += (waves - 0.5) * uEdgeFuzz * 0.5;
+  float alpha = 1.0 - smoothstep(uEdgeStart, 1.0, radial + edgeNoise);
+
+  gl_FragColor = vec4(col, alpha);
 }
 `;
 
@@ -198,6 +210,14 @@ const BAND = {
   fuzz: 0.1,
 };
 
+// edge dissolve: how the visible rim fades into the background. start is the
+// radial where the fade begins (0 = centre, 1 = outline); lower = wider, softer
+// halo. fuzz is how ragged/noisy the fade line is.
+const EDGE = {
+  start: 0.94,
+  fuzz: 0.0,
+};
+
 export default function Orb() {
   const myMesh = useRef<THREE.Mesh>(null!);
   const materialRef = useRef<THREE.ShaderMaterial>(null!);
@@ -221,6 +241,8 @@ export default function Orb() {
       uBandSoftness: { value: BAND.softness },
       uBandStrength: { value: BAND.strength },
       uBandFuzz: { value: BAND.fuzz },
+      uEdgeStart: { value: EDGE.start },
+      uEdgeFuzz: { value: EDGE.fuzz },
     }),
     [],
   );
@@ -275,6 +297,8 @@ export default function Orb() {
           uniforms={uniforms}
           vertexShader={vertexShader}
           fragmentShader={fragmentShader}
+          transparent
+          depthWrite={false}
         />
 
         {/*
