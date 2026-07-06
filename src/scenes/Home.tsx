@@ -1,7 +1,4 @@
 import { Canvas } from "@react-three/fiber";
-import { EffectComposer, Bloom, ChromaticAberration } from "@react-three/postprocessing";
-import { BlendFunction } from "postprocessing";
-import { Vector2 } from "three";
 import ColorBends from "../components/ColorBends";
 import Orb from "../components/Orb";
 import GravityCore from "../components/GravityCore";
@@ -35,20 +32,6 @@ export default function Home() {
         <ColorBends />
         <Orb />
         <GravityCore />
-        <EffectComposer>
-          <Bloom
-            intensity={0.9}
-            luminanceThreshold={0.9}
-            luminanceSmoothing={0.12}
-            mipmapBlur
-          />
-          <ChromaticAberration
-            blendFunction={BlendFunction.NORMAL}
-            offset={new Vector2(0.004, 0.004)}
-            radialModulation
-            modulationOffset={0.08}
-          />
-        </EffectComposer>
       </Canvas>
     </div>
   );

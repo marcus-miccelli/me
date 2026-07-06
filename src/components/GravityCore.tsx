@@ -8,11 +8,11 @@
 // the core, then dies. Petal shape varies per shot — from pointed vesica-piscis
 // leaves (low curl) to rounder loops (high curl). Quiet music => no shots => a
 // tiny bright star. Whole-scene chromatic aberration + bloom (Home) add fringing.
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getOrbState } from "./gravity/orbBus";
-import { makeGlowTexture, makeStarTexture, makeDotTexture } from "./gravity/sprites";
+import { makeStarTexture, makeDotTexture } from "./gravity/sprites";
 import { sampleAudio, sampleSpectrum, expand } from "../audio/audioBus";
 
 // --- tuning -----------------------------------------------------------------
@@ -35,13 +35,19 @@ const CORE = {
   emitMinAmp: 0.06, // a bin must exceed this level to emit
   dirJitter: 0.32, // spread of instances around a bin's base direction
   dotSize: 2.2, // point size (px)
+  caShift: 0.02, // baked chromatic aberration: radial RGB split (grows w/ radius)
+  hdr: 2.4, // HDR gain on dot colour so shots clear the bloom threshold (>1)
 };
 
 function hash(n: number) {
   return ((Math.sin(n * 127.1 + 311.7) * 43758.5453) % 1 + 1) % 1;
 }
 
+// The shot dots are drawn in three passes (R/G/B). uShift pushes each channel's
+// vertices radially outward by a different amount (scaled by radius), baking a
+// chromatic-aberration split into GravityCore alone — no whole-scene CA pass.
 const particleVert = `
+uniform float uShift;
 attribute float aAlpha;
 attribute vec3 aColor;
 attribute float aSize;
@@ -50,19 +56,25 @@ varying vec3 vColor;
 void main() {
   vColor = aColor;
   vAlpha = aAlpha;
+  vec3 pos = position;
+  float d = length(pos.xy);
+  if (d > 0.0001) {
+    pos.xy += (pos.xy / d) * (uShift * d);
+  }
   gl_PointSize = aSize;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 }
 `;
 
 const particleFrag = `
 precision highp float;
 uniform sampler2D uTex;
+uniform vec3 uMask;
 varying float vAlpha;
 varying vec3 vColor;
 void main() {
   vec4 t = texture2D(uTex, gl_PointCoord);
-  gl_FragColor = vec4(vColor * t.rgb, t.a * vAlpha);
+  gl_FragColor = vec4(vColor * uMask * t.rgb, t.a * vAlpha);
 }
 `;
 
@@ -177,13 +189,11 @@ function spawnShot(S: Shots, B: Bins, q: number, b: number, amp: number) {
   S.tint[q * 3 + 2] = B.tint[b * 3 + 2];
 }
 
-export default function GravityCore() {
+export default function GravityCore({ groupRef }: { groupRef?: Ref<THREE.Group> }) {
   const coreGroup = useRef<THREE.Group>(null!);
-  const glowRef = useRef<THREE.Sprite>(null!);
   const starRef = useRef<THREE.Sprite>(null!);
   const cursor = useRef(0);
 
-  const glowTex = useMemo(() => makeGlowTexture(), []);
   const starTex = useMemo(() => makeStarTexture(), []);
   const dotTex = useMemo(() => makeDotTexture(), []);
 
@@ -199,37 +209,39 @@ export default function GravityCore() {
   const bins = useMemo(() => buildBins(), []);
   const shots = useMemo(() => makeShots(), []);
 
+  // one shared geometry, drawn in 3 radially-offset R/G/B passes (baked CA)
   const points = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(dotPos, 3));
     geo.setAttribute("aColor", new THREE.BufferAttribute(dotColor, 3));
     geo.setAttribute("aAlpha", new THREE.BufferAttribute(dotAlpha, 1));
     geo.setAttribute("aSize", new THREE.BufferAttribute(dotSizeArr, 1));
-    const mat = new THREE.ShaderMaterial({
-      uniforms: { uTex: { value: dotTex } },
-      vertexShader: particleVert,
-      fragmentShader: particleFrag,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const p = new THREE.Points(geo, mat);
-    p.frustumCulled = false;
-    p.renderOrder = 2;
-    return p;
-  }, [dotPos, dotColor, dotAlpha, dotSizeArr, dotTex]);
-
-  const glowMat = useMemo(
-    () =>
-      new THREE.SpriteMaterial({
-        map: glowTex,
+    const mk = (mask: [number, number, number], shift: number) => {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uTex: { value: dotTex },
+          uMask: { value: new THREE.Vector3(...mask) },
+          uShift: { value: shift },
+        },
+        vertexShader: particleVert,
+        fragmentShader: particleFrag,
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
-        color: new THREE.Color(0.9, 0.9, 1.1),
-      }),
-    [glowTex],
-  );
+      });
+      const p = new THREE.Points(geo, mat);
+      p.frustumCulled = false;
+      p.renderOrder = 2;
+      return p;
+    };
+    const list = [
+      mk([1, 0, 0], -CORE.caShift),
+      mk([0, 1, 0], 0),
+      mk([0, 0, 1], CORE.caShift),
+    ];
+    return { geo, list };
+  }, [dotPos, dotColor, dotAlpha, dotSizeArr, dotTex]);
+
   const starMat = useMemo(
     () =>
       new THREE.SpriteMaterial({
@@ -319,7 +331,7 @@ export default function GravityCore() {
         dotPos[slot * 3 + 2] = dz * r;
 
         const headFade = 1 - j / TRAIL;
-        const bright = 0.5 + headFade * 0.7;
+        const bright = (0.5 + headFade * 0.7) * CORE.hdr;
         dotAlpha[slot] = 0.3 + 0.7 * headFade;
         dotColor[slot * 3 + 0] = tr * bright;
         dotColor[slot * 3 + 1] = tg * bright;
@@ -327,21 +339,21 @@ export default function GravityCore() {
       }
     }
 
-    (points.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
-    (points.geometry.getAttribute("aAlpha") as THREE.BufferAttribute).needsUpdate = true;
-    (points.geometry.getAttribute("aColor") as THREE.BufferAttribute).needsUpdate = true;
+    (points.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+    (points.geo.getAttribute("aAlpha") as THREE.BufferAttribute).needsUpdate = true;
+    (points.geo.getAttribute("aColor") as THREE.BufferAttribute).needsUpdate = true;
 
     const s = 0.14 + level * 0.16 + mid * 0.16;
-    glowRef.current.scale.setScalar(s * 1.4);
     starRef.current.scale.set(s * 3.2, s * 7.5 + mid * 1.4, 1);
     (starRef.current.material as THREE.SpriteMaterial).opacity = 0.85 + treble * 0.15;
   });
 
   return (
-    <group>
-      <primitive object={points} />
+    <group ref={groupRef}>
+      {points.list.map((p, i) => (
+        <primitive key={i} object={p} />
+      ))}
       <group ref={coreGroup}>
-        <sprite ref={glowRef} material={glowMat} />
         <sprite ref={starRef} material={starMat} />
       </group>
     </group>
