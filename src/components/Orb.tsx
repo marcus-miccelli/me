@@ -3,7 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import AuroraBeam from "./AuroraBeam";
 import { sampleAudio } from "../audio/audioBus";
-import { setOrbState } from "./gravity/orbBus";
+// import { setOrbState } from "./gravity/orbBus";
 
 const vertexShader = `
 varying vec3 vNormal;
@@ -224,7 +224,7 @@ export default function Orb() {
   const materialRef = useRef<THREE.ShaderMaterial>(null!);
   const groupRef = useRef<THREE.Group>(null!);
   const audioTime = useRef(0); // audio-accelerated clock for uTime
-  const { viewport } = useThree();
+  // const { viewport } = useThree();
 
   const uniforms = useMemo(
     () => ({
