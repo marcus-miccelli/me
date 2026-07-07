@@ -277,7 +277,7 @@ export default function ColorBends({
     material.uniforms.uSpeed.value = speed;
     material.uniforms.uScale.value = scale;
     material.uniforms.uFrequency.value = frequency;
-    material.uniforms.uWarpStrength.value = warpStrength + (0.001 * bass);
+    material.uniforms.uWarpStrength.value = warpStrength + 0.001 * bass;
     material.uniforms.uMouseInfluence.value = mouseInfluence;
     material.uniforms.uParallax.value = parallax;
     material.uniforms.uNoise.value = noise - (1 * level + 2 * treble);

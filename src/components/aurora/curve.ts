@@ -12,7 +12,11 @@ export function flareHump(x: number): number {
 
 // Transition curvature over normalised arclength sN in [0,1]:
 // ramps 0 -> kappaRim (smootherstep) minus a flare hump that dips it negative.
-export function transitionKappa(sN: number, kappaRim: number, cFlare: number): number {
+export function transitionKappa(
+  sN: number,
+  kappaRim: number,
+  cFlare: number,
+): number {
   return kappaRim * smootherstep(sN) - cFlare * flareHump(sN);
 }
 
@@ -25,7 +29,10 @@ export function integrateHeading(
   s1: number,
   theta0: number,
   steps: number,
-): { theta: number; points: { s: number; x: number; y: number; theta: number }[] } {
+): {
+  theta: number;
+  points: { s: number; x: number; y: number; theta: number }[];
+} {
   const h = (s1 - s0) / steps;
   let x = 0,
     y = 0,
@@ -89,7 +96,11 @@ interface RawPoint {
   kappa: number;
 }
 
-function buildTransition(p: BeamCurveParams, a: number, Lt: number): RawPoint[] {
+function buildTransition(
+  p: BeamCurveParams,
+  a: number,
+  Lt: number,
+): RawPoint[] {
   const kappaRim = 1 / (1 + p.skim);
   const steps = Math.max(32, Math.round(Lt * 600));
   const kap = (s: number) => transitionKappa(s / Lt, kappaRim, p.flareDepth);

@@ -609,7 +609,7 @@ export default function AuroraBeam({
     }
 
     const { level, bass, mid, treble } = sampleAudio();
-    
+
     for (const material of [
       materialTopRef.current,
       materialBottomRef.current,
@@ -632,19 +632,36 @@ export default function AuroraBeam({
       material.uniforms.uWrapDepth.value = wrapDepth;
       material.uniforms.uWidth.value = beamWidth + 0.3 * (level + 1 * bass);
       material.uniforms.uWidthDecay.value = widthDecay;
-      material.uniforms.uWaveAmp.value = lerp(waveAmplitude, waveAmplitude + 2, (0.5 * treble));
+      material.uniforms.uWaveAmp.value = lerp(
+        waveAmplitude,
+        waveAmplitude + 2,
+        0.5 * treble,
+      );
       material.uniforms.uWaveFreq.value = waveFrequency;
       material.uniforms.uScale.value = scale;
-      material.uniforms.uBrightness.value = brightness + (0.5 * treble);
-      material.uniforms.uNoiseFreq.value = noiseFrequency + 0.1 * (level + 1 * mid);
+      material.uniforms.uBrightness.value = brightness + 0.5 * treble;
+      material.uniforms.uNoiseFreq.value =
+        noiseFrequency + 0.1 * (level + 1 * mid);
       material.uniforms.uNoiseAmp.value = noiseAmplitude;
-      material.uniforms.uBandHeight.value = lerp(bandHeight, bandHeight + 1, 0.1 * level);
-      material.uniforms.uBandSpread.value = lerp(bandSpread, bandSpread + 1, 0.5 * level);
+      material.uniforms.uBandHeight.value = lerp(
+        bandHeight,
+        bandHeight + 1,
+        0.1 * level,
+      );
+      material.uniforms.uBandSpread.value = lerp(
+        bandSpread,
+        bandSpread + 1,
+        0.5 * level,
+      );
       material.uniforms.uOctaveDecay.value = octaveDecay;
       material.uniforms.uLayerOffset.value = layerOffset;
       material.uniforms.uColorSpeed.value = colorSpeed;
       material.uniforms.uWrapGlow.value = wrapGlow + 5 * (level + 1 * mid);
-      material.uniforms.uSoftness.value = lerp(softness - 0.3, softness + 0.3, bass);
+      material.uniforms.uSoftness.value = lerp(
+        softness - 0.3,
+        softness + 0.3,
+        bass,
+      );
       material.uniforms.uMouseInfluence.value = mouseInfluence;
       material.uniforms.uEnableMouse.value = enableMouseInteraction;
     }

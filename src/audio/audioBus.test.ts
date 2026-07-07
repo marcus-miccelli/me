@@ -17,7 +17,12 @@ describe("rawBands", () => {
   });
 
   it("silence -> all bands 0", () => {
-    expect(rawBands(bins(() => 0))).toEqual({ level: 0, bass: 0, mid: 0, treble: 0 });
+    expect(rawBands(bins(() => 0))).toEqual({
+      level: 0,
+      bass: 0,
+      mid: 0,
+      treble: 0,
+    });
   });
 
   it("bass is the PEAK bin, not diluted by averaging", () => {

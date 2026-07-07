@@ -31,7 +31,7 @@ export default function Home() {
         <directionalLight position={[3, 4, 5]} intensity={1} />
         <ColorBends />
         <Orb />
-        <GravityCore />
+        {/* <GravityCore /> */}
       </Canvas>
     </div>
   );

@@ -10,14 +10,22 @@ export interface OrbState {
   scale: number;
   /** Base (unscaled) orb radius, world units. */
   radius: number;
+  /** Normalized breath position, 0 = smallest, 1 = largest. */
+  norm: number;
 }
 
-const state: OrbState = { centerZ: 0, scale: 1, radius: 1 };
+const state: OrbState = { centerZ: 0, scale: 1, radius: 1, norm: 0.5 };
 
-export function setOrbState(centerZ: number, scale: number, radius?: number): void {
+export function setOrbState(
+  centerZ: number,
+  scale: number,
+  radius?: number,
+  norm?: number,
+): void {
   state.centerZ = centerZ;
   state.scale = scale;
   if (radius !== undefined) state.radius = radius;
+  if (norm !== undefined) state.norm = norm;
 }
 
 export function getOrbState(): OrbState {

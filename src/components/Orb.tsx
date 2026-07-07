@@ -183,7 +183,7 @@ void main() {
 `;
 
 // audio-reactive base-colour endpoints (bass lerps BASE_CALM -> BASE_HOT)
-const BASE_REG = new THREE.Color("#ffffff")
+const BASE_REG = new THREE.Color("#ffffff");
 const BASE_CALM = new THREE.Color("#000000");
 const BASE_HOT = new THREE.Color("#e100ff");
 
@@ -248,25 +248,25 @@ export default function Orb() {
     [],
   );
 
-  useFrame(({ clock, camera }, delta) => {
+  useFrame(({ camera }, delta) => {
     const mesh = myMesh.current;
     const material = materialRef.current;
 
-    const t = clock.getElapsedTime();
+    //ZOOM DO NOT TOUCH
+    // const t = clock.getElapsedTime();
 
     const radius = 1;
 
-    const halfW = viewport.width / 2;
-    const halfH = viewport.height / 2;
+    // const halfW = viewport.width / 2;
+    // const halfH = viewport.height / 2;
 
-    const max = Math.sqrt(halfW * halfW + halfH * halfH) / radius;
-    const min = (Math.min(viewport.width, viewport.height) * 0.2) / radius;
+    // const max = Math.sqrt(halfW * halfW + halfH * halfH) / radius;
+    // const min = (Math.min(viewport.width, viewport.height) * 0.2) / radius;
 
-    const avg = (max + min) / 2;
-    const mid = (max - min) / 2;
-
-    const { level, bass, treble } = sampleAudio();
-    const scale = avg + Math.cos(t / 12) * mid;
+    // const avg = (max + min) / 2;
+    // const mid = (max - min) / 2;
+    // const scale = avg + Math.cos(t / 12) * mid; zoom in out orb
+    const scale = 1
 
     mesh.scale.setScalar(scale);
 
@@ -276,8 +276,15 @@ export default function Orb() {
 
     mesh.rotation.z += 0.001;
 
-    // publish live orb state so GravityCore can anchor to the near face
-    setOrbState(mesh.position.z, scale, radius);
+    // GRAVITY OCRE DO NOT TOUCH
+    // // normalized breath: 0 at smallest (avg-mid), 1 at largest (avg+mid)
+    // const norm =
+    //   mid > 0
+    //     ? THREE.MathUtils.clamp((scale - (avg - mid)) / (2 * mid), 0, 1)
+    //     : 0.5;
+    const { level, bass, treble } = sampleAudio();
+    // // publish live orb state so GravityCore can anchor to the near face
+    // setOrbState(mesh.position.z, scale, radius, norm);
 
     // --- audio-reactive uniforms: BASE resting value + audio on top ---
     // time: the swirl + dither animation speeds up with overall loudness
@@ -287,10 +294,14 @@ export default function Orb() {
     material.uniforms.uWaveAmplitude.value = BASE.waveAmplitude + treble * 0.1;
     // wave colour: BASE_CALM when quiet, toward BASE_HOT on bass
     material.uniforms.uWaveColor.value.lerpColors(BASE_CALM, BASE_HOT, bass);
-    material.uniforms.uBaseColor.value.lerpColors(BASE_REG, BASE_HOT, bass * 0.5);
+    material.uniforms.uBaseColor.value.lerpColors(
+      BASE_REG,
+      BASE_HOT,
+      bass * 0.5,
+    );
     // film grain lifts with treble
     material.uniforms.uNoise.value = BASE.noise + treble * 0.2;
-    material.uniforms.uBandRadius.value = BAND.radius + bass * 0.2
+    material.uniforms.uBandRadius.value = BAND.radius + bass * 0.2;
   });
 
   return (
@@ -336,6 +347,3 @@ export default function Orb() {
     </group>
   );
 }
-
-
-

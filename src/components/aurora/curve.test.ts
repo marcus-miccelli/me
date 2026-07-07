@@ -30,7 +30,8 @@ describe("transitionKappa", () => {
   });
   it("dips negative (flare) for positive cFlare", () => {
     let min = Infinity;
-    for (let i = 0; i <= 20; i++) min = Math.min(min, transitionKappa(i / 20, kRim, 2));
+    for (let i = 0; i <= 20; i++)
+      min = Math.min(min, transitionKappa(i / 20, kRim, 2));
     expect(min).toBeLessThan(0);
   });
 });
@@ -38,7 +39,13 @@ describe("transitionKappa", () => {
 describe("integrateHeading", () => {
   it("a constant-curvature arc is a circle: turning by pi over length pi*R", () => {
     const R = 2;
-    const { theta, points } = integrateHeading(() => 1 / R, 0, Math.PI * R, 0, 400);
+    const { theta, points } = integrateHeading(
+      () => 1 / R,
+      0,
+      Math.PI * R,
+      0,
+      400,
+    );
     expect(theta).toBeCloseTo(Math.PI, 2); // heading turned by pi
     const end = points[points.length - 1];
     // start heading +x from (0,0), curving left: end near (0, 2R)
