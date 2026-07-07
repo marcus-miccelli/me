@@ -1,7 +1,7 @@
 import { Canvas } from "@react-three/fiber";
 import ColorBends from "../components/ColorBends";
 import Orb from "../components/Orb";
-import GravityCore from "../components/GravityCore";
+// import GravityCore from "../components/GravityCore";
 import "../css/Home.css";
 
 export default function Home() {
