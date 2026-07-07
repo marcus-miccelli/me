@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import AuroraBeam from "./AuroraBeam";
 import { sampleAudio } from "../audio/audioBus";
