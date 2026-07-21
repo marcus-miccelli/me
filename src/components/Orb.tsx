@@ -266,7 +266,7 @@ export default function Orb() {
     // const avg = (max + min) / 2;
     // const mid = (max - min) / 2;
     // const scale = avg + Math.cos(t / 12) * mid; zoom in out orb
-    const scale = 1
+    const scale = 1;
 
     mesh.scale.setScalar(scale);
 

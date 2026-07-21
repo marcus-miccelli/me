@@ -4,12 +4,19 @@ import Orb from "../components/Orb";
 // import GravityCore from "../components/GravityCore";
 import "../css/Home.css";
 
-export default function Home() {
+type Props = {
+  /** When false (another page is up) the scene is hidden and the frame loop
+   *  stops — no GPU work, no WebGL context teardown/re-init on return. */
+  active: boolean;
+};
+
+export default function Home({ active }: Props) {
   return (
-    <div className="background">
+    <div className={`background${active ? "" : " background--hidden"}`}>
       <Canvas
         className="scene-canvas"
         dpr={[1, 2]}
+        frameloop={active ? "always" : "never"}
         gl={{
           alpha: true,
           antialias: true,

@@ -8,6 +8,12 @@
   pointer-events: none;
 }
 
+/* visibility (not display) keeps the canvas size stable, so re-showing the
+   scene doesn't trigger a resize/context churn */
+.background--hidden {
+  visibility: hidden;
+}
+
 .background > div,
 .scene-canvas {
   width: 100% !important;

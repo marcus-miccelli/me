@@ -1,0 +1,244 @@
+.social-dock {
+  position: fixed;
+  top: clamp(14px, 2.4vh, 22px);
+  left: 50%;
+  transform: translateX(-50%);
+  /* Above everything, including the appendix sheet (z 1300): the dock
+     is site chrome and never hides. */
+  z-index: 1400;
+  font-family: var(--mono);
+  text-transform: lowercase;
+  /* springy slide between the home (centre) and paper (top-right) posts */
+  transition:
+    transform 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    top 560ms cubic-bezier(0.3, 1.45, 0.36, 1);
+}
+
+/* The island: a quiet oval of editor-window chrome the stamps sit on.
+   No overflow clipping — hover labels hang below it, goo flies past it. */
+.social-dock__island {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 7px 18px;
+  background: rgba(13, 11, 18, 0.88);
+  border: 1px solid #2a2433;
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  /* every property that differs between the home pill and the session
+     button-group morphs on the same spring, so nothing snaps mid-flight */
+  transition:
+    background 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    border-color 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    border-radius 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    box-shadow 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    gap 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    padding 560ms cubic-bezier(0.3, 1.45, 0.36, 1);
+}
+
+.social-dock__btn {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  text-decoration: none;
+  z-index: 1;
+  transition:
+    width 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    height 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    border-radius 560ms cubic-bezier(0.3, 1.45, 0.36, 1);
+}
+
+.social-dock__btn + .social-dock__btn {
+  border-left: 0 solid transparent;
+  transition:
+    width 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    height 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    border-radius 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    border-left-color 300ms ease 160ms;
+}
+
+/* Gooey hover: a round white blob wells up behind the icon —
+   same liquid family as the click burst, nothing like the menu's torn paper. */
+.social-dock__btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #ffffff;
+  opacity: 0;
+  transform: scale(0);
+  transition:
+    transform 300ms var(--goo-ease, cubic-bezier(0.34, 1.56, 0.64, 1)),
+    opacity 200ms ease;
+}
+
+.social-dock__btn:hover::after,
+.social-dock__btn:focus-visible::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.social-dock__btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.social-dock__stamp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #8f8a99;
+  transition: color 250ms ease;
+  z-index: 1;
+}
+
+.social-dock__stamp svg {
+  width: 19px;
+  height: 19px;
+  transition:
+    width 560ms cubic-bezier(0.3, 1.45, 0.36, 1),
+    height 560ms cubic-bezier(0.3, 1.45, 0.36, 1);
+}
+
+.social-dock__btn:hover .social-dock__stamp,
+.social-dock__btn:focus-visible .social-dock__stamp {
+  color: #000000;
+}
+
+.social-dock__label {
+  position: absolute;
+  top: calc(100% + 15px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  color: #f2f2f2;
+  background: #000000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.social-dock__btn:hover .social-dock__label,
+.social-dock__btn:focus-visible .social-dock__label {
+  opacity: 1;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .social-dock,
+  .social-dock__island,
+  .social-dock__btn,
+  .social-dock__btn + .social-dock__btn,
+  .social-dock__stamp,
+  .social-dock__stamp svg,
+  .social-dock__btn::after {
+    transition: none;
+  }
+}
+
+/* On the paper (about) page the dock leaves the text column: it springs
+   over to the top-right margin, compacts, and inverts to paper material
+   so it belongs to the white page instead of floating over it. */
+/* On the session (about) page the dock drops the pill entirely and
+   becomes a flat, ink-bordered button group — a sibling of the title
+   bar's export control, not a glossy object floating over it. */
+.social-dock--paper {
+  /* baseline-matched to the title bar's other 28px controls */
+  top: 22.5px;
+  transform: translateX(calc(50vw - 100% - 18px));
+}
+
+.social-dock--paper .social-dock__island {
+  gap: 0;
+  padding: 0;
+  background: #e5e3de;
+  border: 1px solid #16150f;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.social-dock--paper .social-dock__btn {
+  width: 36px;
+  height: 26px;
+  border-radius: 0;
+}
+
+.social-dock--paper .social-dock__btn + .social-dock__btn {
+  border-left-width: 1px;
+  border-left-color: #16150f;
+}
+
+/* hover: flat ink fill wipes up (no round blob on square chrome) */
+.social-dock--paper .social-dock__btn::after {
+  border-radius: 0;
+  background: #16150f;
+  opacity: 1;
+  transform: scaleY(0);
+  transform-origin: bottom;
+}
+
+.social-dock--paper .social-dock__btn:hover::after,
+.social-dock--paper .social-dock__btn:focus-visible::after {
+  transform: scaleY(1);
+}
+
+.social-dock--paper .social-dock__stamp {
+  color: #16150f;
+}
+
+.social-dock--paper .social-dock__stamp svg {
+  width: 15px;
+  height: 15px;
+}
+
+.social-dock--paper .social-dock__btn:hover .social-dock__stamp,
+.social-dock--paper .social-dock__btn:focus-visible .social-dock__stamp {
+  color: #e5e3de;
+}
+
+.social-dock--paper .social-dock__btn:focus-visible {
+  outline: 2px solid #16150f;
+  outline-offset: -3px;
+}
+
+.social-dock--paper .social-dock__label {
+  top: calc(100% + 10px);
+}
+
+@media (max-width: 560px) {
+  .social-dock__island {
+    gap: 6px;
+    padding: 6px 13px;
+  }
+
+  .social-dock__btn {
+    width: 38px;
+    height: 38px;
+  }
+}

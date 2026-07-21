@@ -1,0 +1,1039 @@
+/* ------------------------------------------------------------------ */
+/* About v8: the session file. Marcus's life as an arrangement view —  */
+/* Live's anatomy (title-strip + waveform clips, right-hand track      */
+/* headers, pointed locator flags, boxed clip-view fields, drop-zone   */
+/* gray) dressed in teenage-engineering aluminum. Selection darkens    */
+/* the clip; safety orange is left to the ruler brace + record dot.    */
+/* ------------------------------------------------------------------ */
+
+.about {
+  --surface: #d6d3cc;
+  --panel: #e5e3de;
+  --dead: #c7c4bb;
+  --ink: #16150f;
+  --ink-soft: #55534b;
+  --line: rgba(22, 21, 15, 0.28);
+  --hairline: rgba(22, 21, 15, 0.13);
+  --grid-minor: rgba(22, 21, 15, 0.07);
+  --safety: #ff4d00;
+  --amber: #d9b23c;
+  --solo: #7fa8c9;
+  --fader: #6fa9a4;
+  --ph: #8b887e;
+  --t-education: #9fb7cc;
+  --t-work: #a9c39a;
+  --t-projects: #cfa98e;
+  --t-play: #b9a6cf;
+
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  text-transform: lowercase;
+  animation: about-in 200ms ease-out;
+}
+
+@keyframes about-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ink focus rings — orange stays reserved for selection + playhead */
+.about :focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.is-ph {
+  color: var(--ph);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------ */
+/* Title bar                                                           */
+/* ------------------------------------------------------------------ */
+
+.tb {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  height: 74px;
+  flex: 0 0 auto;
+  padding: 0 18px;
+  /* right side is the social dock's parking spot (130px + gap) */
+  padding-right: 148px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--ink);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+}
+
+.tb__menu {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.tb__menu:hover {
+  background: var(--ink);
+  color: var(--panel);
+}
+
+.tb__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+}
+
+.tb__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--safety);
+}
+
+/* transport cluster — inset value boxes, Live-style */
+.tb__transport {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* every title-bar control is 28px tall — the dock's height */
+.tb__box {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0 9px;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.tb__box--readout {
+  min-width: 10ch;
+  text-align: center;
+  color: var(--ink);
+}
+
+/* the page's one real call to action — filled, so it reads as the thing
+ * to click rather than another transport box */
+.tb__export {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  background: var(--ink);
+  color: var(--panel);
+  text-decoration: none;
+  border: 1px solid var(--ink);
+  padding: 0 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tb__export:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ */
+/* Overview — Live's scroll/zoom strip above the arrangement           */
+/* ------------------------------------------------------------------ */
+
+.ovw {
+  position: relative;
+  flex: 0 0 32px;
+  background: var(--dead);
+  border-bottom: 1px solid var(--ink);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.ovw:active {
+  cursor: grabbing;
+}
+
+.ovw__mini {
+  position: absolute;
+  inset: 3px 0;
+}
+
+.ovw__clip {
+  position: absolute;
+  min-width: 2px;
+  border: 0.5px solid rgba(22, 21, 15, 0.35);
+  opacity: 0.9;
+}
+
+/* the visible-slice rectangle — drag it, Live-style */
+.ovw__rect {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 8px;
+  border: 1px solid var(--ink);
+  background: rgba(255, 255, 255, 0.34);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Arrangement                                                         */
+/* ------------------------------------------------------------------ */
+
+.arr {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* --zoom (set inline) stretches the timeline; the header column is a
+ * fixed slice of it, so zoom 1 always fits the pane exactly. */
+.arr__inner {
+  position: relative;
+  min-width: calc(max(980px, 100%) * var(--zoom, 1));
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.arr__row {
+  display: flex;
+  align-items: stretch;
+}
+
+/* track headers live on the RIGHT, like Live's arrangement view, and
+ * stay pinned there while the timeline scrolls under them */
+.arr__gutter {
+  order: 2;
+  position: sticky;
+  right: 0;
+  z-index: 6;
+  flex: 0 0 246px;
+  /* without this a nowrap header ("projects 1") sets a min-content floor
+   * above the basis, widening that row's gutter and shifting its grid */
+  min-width: 0;
+  /* no outer padding: the colour block runs flush to the column's left
+   * border and the full height of its row. Everything right of it is
+   * inset by the .mix margins instead. */
+  padding: 0;
+  background: var(--surface);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+  border-left: 1px solid var(--ink);
+}
+
+.arr__lane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ruler */
+.arr__row--ruler {
+  flex: 0 0 30px;
+  border-bottom: 1px solid var(--ink);
+}
+
+/* Quarter ticks are a repeating background, not ~35 elements: --years is
+ * the ruler span in years (set inline from RULER), so one column is
+ * 100%/years wide and a quarter is a further 1/4 of that. */
+.ruler {
+  cursor: ew-resize;
+  background-image: linear-gradient(
+    to right,
+    var(--hairline) 0 1px,
+    transparent 1px
+  );
+  background-size: calc(100% / (var(--years) * 4)) 5px;
+  background-position: left bottom;
+  background-repeat: repeat-x;
+}
+
+.ruler__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 3px;
+}
+
+.ruler__tick em {
+  font-style: normal;
+}
+
+/* selected clip's span, bracketed under the ruler */
+.ruler__brace {
+  position: absolute;
+  bottom: 0;
+  height: 6px;
+  border: 1.5px solid var(--ink);
+  border-bottom: 0;
+}
+
+/* locators */
+.arr__row--locators {
+  flex: 0 0 34px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--panel);
+}
+
+.arr__row--locators .arr__gutter {
+  background: var(--panel);
+}
+
+/* boxed in the same ink as the colour blocks and the row rules */
+.locator {
+  position: absolute;
+  top: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  padding: 2px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* flags sit at a percentage of the lane, so their left edge lands on a
+   * fractional pixel and the 1px border rasterises at half opacity. Its
+   * own compositing layer gets snapped to whole device pixels. */
+  transform: translateZ(0);
+}
+
+/* the pointed marker tab */
+.locator::before {
+  content: "";
+  flex: 0 0 9px;
+  width: 9px;
+  height: 12px;
+  background: var(--ink);
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+}
+
+/* hover only tints; selection is the full invert, so the two read apart */
+.locator:hover {
+  background: rgba(22, 21, 15, 0.13);
+}
+
+.locator.is-sel,
+.locator.is-sel:hover {
+  background: var(--ink);
+  color: var(--panel);
+  font-weight: 700;
+}
+
+.locator.is-sel::before {
+  background: var(--panel);
+}
+
+/* tracks — every header is exactly one row tall, and the rows share the
+ * pane height between them instead of leaving drop-zone gray below.
+ * The separator is ink, matching the ruler/locator rules: in Live the
+ * horizontal track divisions read darker than the vertical grid. */
+.arr__row--track {
+  flex: 500 1 46px;
+  min-height: 46px;
+  max-height: 108px;
+  border-bottom: 1px solid var(--ink);
+}
+
+/* colour block on the left, mixer column to its right — Live's order */
+.arr__gutter--track {
+  display: flex;
+  align-items: stretch;
+  color: var(--ink);
+}
+
+/* flush: no border of its own, no margin — the row's own separators and
+ * the column's left border frame it, exactly like Live's colour block */
+.tk {
+  flex: 0 0 106px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  background: var(--tint);
+  border-right: 1px solid var(--ink);
+  /* name rides the top of the block, like Live's */
+  padding: 6px 5px 0;
+  overflow: hidden;
+}
+
+/* Unfold Track. The caret is drawn geometry, not a glyph — a 7px font
+ * arrow never sits straight in an 11px circle. */
+.tk__fold {
+  position: relative;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid rgba(22, 21, 15, 0.5);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tk__fold::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border: 3px solid transparent;
+  border-top: 4px solid var(--ink);
+  border-bottom: 0;
+  transform: translateY(1px);
+}
+
+/* folded — caret points at the collapsed track */
+.tk__fold.is-folded::before {
+  border: 3px solid transparent;
+  border-left: 4px solid var(--ink);
+  border-right: 0;
+  transform: translateX(1px);
+}
+
+.tk__fold:hover {
+  border-color: var(--ink);
+}
+
+.tk__name {
+  min-width: 0;
+  font-size: 10px;
+  line-height: 11px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------- header mixer strip ------------------------ */
+
+/* two equal columns: activator over fader, solo+arm over pan */
+.mix {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* top-aligned too, on the same line as the block's name */
+  margin: 4px 8px 0 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  column-gap: 6px;
+  row-gap: 4px;
+}
+
+.mix__pair {
+  display: flex;
+  gap: 4px;
+}
+
+.mix__act,
+.mix__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 15px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.mix__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  /* the scene is lowercase; solo's S is not */
+  text-transform: none;
+}
+
+/* track activator — amber while the track is on, like Live's */
+.mix__act {
+  min-width: 0;
+  background: var(--amber);
+  border-color: rgba(22, 21, 15, 0.4);
+}
+
+.mix__act.is-off {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
+
+.mix__btn.is-solo {
+  background: var(--solo);
+  border-color: rgba(22, 21, 15, 0.4);
+}
+
+.mix__act:hover,
+.mix__btn:hover {
+  border-color: var(--ink);
+}
+
+/* a deactivated track fades out, clips and all */
+.arr__row--track.is-off .tk,
+.arr__row--track.is-off .clip {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+}
+
+/* folded — the row collapses to its name strip. The manual's own rule:
+ * "if a track is folded or too small" its controls stop being reachable,
+ * so the mixer drops out and the clips keep only their title strips. */
+.arr__row--track.is-folded {
+  flex: 0 0 24px;
+  min-height: 24px;
+  max-height: 24px;
+}
+
+.arr__row--track.is-folded .mix {
+  display: none;
+}
+
+.arr__row--track.is-folded .tk {
+  padding-top: 5px;
+}
+
+.arr__row--track.is-folded .clip {
+  top: 2px;
+  bottom: 2px;
+}
+
+.arr__row--track.is-folded .clip__wave {
+  display: none;
+}
+
+/* the dot is always ink; arming fills the box behind it red */
+.mix__arm::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--ink);
+  border-radius: 50%;
+}
+
+.mix__arm.is-armed {
+  background: var(--safety);
+  border-color: rgba(22, 21, 15, 0.4);
+}
+
+/* volume + pan share a groove; both print their value, Live-style, and
+ * both drag horizontally */
+.mix__slider {
+  position: relative;
+  min-width: 0;
+  height: 15px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.mix__slider:hover {
+  border-color: var(--ink);
+}
+
+.mix__slider b {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--fader);
+}
+
+.mix__slider em {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  /* pan prints C / 12L / 30R — capitals, against the scene's lowercase */
+  text-transform: none;
+  pointer-events: none;
+}
+
+.mix__vol b {
+  left: 0;
+  width: calc(var(--v) * 100%);
+}
+
+/* pan fills outward from centre — no detent mark; the readout says C */
+.mix__pan b {
+  left: var(--pl);
+  width: var(--pw);
+}
+
+/* Same two-gradient grid as the ruler — years on top of quarters. */
+.arr__lane.track {
+  background-image:
+    linear-gradient(to right, var(--line) 0 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-minor) 0 1px, transparent 1px);
+  background-size:
+    calc(100% / var(--years)) 100%,
+    calc(100% / (var(--years) * 4)) 100%;
+  background-repeat: repeat-x;
+}
+
+/* -------------------------- the clip ------------------------------ */
+/* Live's anatomy: saturated title strip + pale body with a waveform. */
+
+.clip {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  font-family: var(--mono);
+  text-transform: lowercase;
+  text-align: left;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--tint) 42%, #ffffff);
+  border: 1px solid rgba(22, 21, 15, 0.45);
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+.clip__strip {
+  flex: 0 0 15px;
+  background: var(--tint);
+  border-bottom: 1px solid rgba(22, 21, 15, 0.25);
+  font-size: 9.5px;
+  line-height: 15px;
+  padding: 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* sliver clips drop their text — the tooltip + clip view carry it */
+@container (max-width: 40px) {
+  .clip__strip {
+    color: transparent;
+  }
+}
+
+.clip__wave {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  color: color-mix(in srgb, var(--tint) 25%, var(--ink));
+  opacity: 0.55;
+}
+
+.clip:hover {
+  filter: brightness(1.06);
+  border-color: var(--ink);
+}
+
+/* selection darkens the clip and inverts its text — Live's own tell */
+.clip.is-sel {
+  background: color-mix(in srgb, var(--tint) 68%, var(--ink));
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.clip.is-sel:hover {
+  filter: none;
+}
+
+.clip.is-sel .clip__strip {
+  background: color-mix(in srgb, var(--tint) 42%, var(--ink));
+  border-bottom-color: rgba(22, 21, 15, 0.5);
+  color: #f4f2ec;
+}
+
+.clip.is-sel .clip__wave {
+  color: #f4f2ec;
+  opacity: 0.5;
+}
+
+/* still running — open right edge instead of a closing border */
+.clip--ongoing {
+  border-right: 0;
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 16px),
+    transparent
+  );
+}
+
+/* Drop-zone gray. Tracks out-grow it 500:1, so they claim the free space
+ * first; only what they can't absorb (their max-height) spills down here,
+ * which means short panes show no gray at all. */
+.arr__dead {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--dead);
+}
+
+/* playhead — Live's black insert marker, haloed white so it survives
+ * crossing a dark selected clip */
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--ink);
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.9));
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4.5px;
+  border: 5px solid transparent;
+  border-top: 6px solid var(--ink);
+  border-bottom: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Clip view — the bottom detail panel                                 */
+/* ------------------------------------------------------------------ */
+
+.cvw {
+  flex: 0 0 auto;
+  height: clamp(230px, 32vh, 320px);
+  display: flex;
+  background: var(--panel);
+  border-top: 2px solid var(--ink);
+}
+
+.cvw__meta {
+  flex: 0 0 clamp(210px, 24vw, 300px);
+  padding: 14px 16px;
+  border-right: 1px solid var(--ink);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+/* Live's clip name field — filled with the clip's color */
+.cvw__name {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--tint, var(--surface));
+  border: 1px solid var(--ink);
+  padding: 6px 10px;
+  align-self: stretch;
+}
+
+.cvw__name--era {
+  background: var(--surface);
+}
+
+.cvw__tag {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  padding: 3px 8px;
+  border: 1px solid var(--ink);
+}
+
+.cvw__tag--education {
+  background: var(--t-education);
+}
+.cvw__tag--work {
+  background: var(--t-work);
+}
+.cvw__tag--projects {
+  background: var(--t-projects);
+}
+.cvw__tag--play {
+  background: var(--t-play);
+}
+.cvw__tag--era {
+  background: var(--ink);
+  color: var(--panel);
+}
+.cvw__tag--info {
+  background: transparent;
+  color: var(--ink);
+}
+
+/* boxed value fields */
+.cvw__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.cvw__field {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 4px 9px 5px;
+  font-size: 10.5px;
+  min-width: 62px;
+  white-space: nowrap;
+}
+
+.cvw__field b {
+  display: block;
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.cvw__sub {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.cvw__body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  padding: 16px 20px 18px;
+  font-size: 13px;
+  line-height: 1.65;
+  container-type: inline-size;
+}
+
+/* Wide panels split the text into columns instead of wasting the row. */
+@container (min-width: 860px) {
+  .cvw__cols {
+    columns: 2;
+    column-gap: 36px;
+    column-rule: 1px solid var(--hairline);
+  }
+
+  .cvw__cols .cvw__line,
+  .cvw__cols .cvw__note,
+  .cvw__cols .cvw__pull,
+  .cvw__cols .cvw__quote {
+    max-width: none;
+  }
+}
+
+@container (min-width: 1420px) {
+  .cvw__cols {
+    columns: 3;
+  }
+}
+
+.cvw__item {
+  break-inside: avoid;
+  margin-bottom: 6px;
+}
+
+.cvw__line,
+.cvw__note,
+.cvw__pull,
+.cvw__quote,
+.cvw__ref,
+.cvw__objectives li {
+  break-inside: avoid;
+}
+
+.cvw__line {
+  margin-bottom: 9px;
+  max-width: 88ch;
+}
+
+.cvw__line b {
+  font-weight: 700;
+}
+
+/* inline links inside bullet text — [label](href) via renderRich */
+.cvw__link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cvw__link:hover {
+  background: var(--ink);
+  color: var(--panel);
+  text-decoration: none;
+}
+
+.cvw__note {
+  margin: 0 0 9px 18px;
+  max-width: 80ch;
+  color: var(--ink-soft);
+}
+
+.cvw__pull {
+  font-weight: 700;
+  font-size: 14px;
+  margin: 12px 0 10px;
+  max-width: 60ch;
+}
+
+.cvw__ref {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: lowercase;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 5px 10px;
+  margin: 4px 8px 4px 0;
+  cursor: pointer;
+}
+
+.cvw__ref:hover {
+  background: var(--ink);
+  color: var(--panel);
+  border-color: var(--ink);
+}
+
+.cvw__quote {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  max-width: 62ch;
+}
+
+.cvw__objectives {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.cvw__objectives li {
+  margin-bottom: 4px;
+}
+
+.cvw__objectives b {
+  font-weight: 700;
+}
+
+.cvw__hint {
+  margin-top: 14px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive + motion                                                 */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 720px) {
+  .tb {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 70px;
+    align-content: center;
+    gap: 4px 14px;
+    padding: 8px 148px 8px 14px;
+    font-size: 11.5px;
+  }
+
+  .tb__file {
+    white-space: nowrap;
+  }
+
+  .tb__transport {
+    display: none;
+  }
+
+  .arr__gutter {
+    flex-basis: 176px;
+    font-size: 9.5px;
+  }
+
+  .tk {
+    flex-basis: 74px;
+  }
+
+  .tk__name {
+    font-size: 9px;
+  }
+
+  /* narrow headers drop to one column: activator over fader */
+  .mix {
+    grid-template-columns: 1fr;
+  }
+
+  .mix__pair,
+  .mix__pan {
+    display: none;
+  }
+
+  .cvw {
+    height: 44vh;
+    flex-direction: column;
+  }
+
+  .cvw__meta {
+    flex: 0 0 auto;
+    max-height: 40%;
+    border-right: 0;
+    border-bottom: 1px solid var(--ink);
+    padding: 10px 14px;
+    gap: 6px;
+  }
+
+  .cvw__body {
+    padding: 12px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .about {
+    animation: none;
+  }
+}

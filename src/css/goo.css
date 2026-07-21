@@ -1,0 +1,137 @@
+/* Gooey burst shared styles — adapted from ReactBits' GooeyNav (MIT).
+   The trick: white dots + a white pulse blob, blurred then contrast-crushed
+   over a black field, blended with `lighten` so only the goo shows. */
+
+/* aurora palette — same family as the orb's beams (AuroraBeam colors) */
+:root {
+  --goo-1: #f7f7f7;
+  --goo-2: #1900ff;
+  --goo-3: #c41515;
+  --goo-4: #e100ff;
+}
+
+.goo-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.goo-filter {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  z-index: 0;
+  filter: url(#goo-metaball);
+}
+
+/* pulse blob that the particles merge into, then it swallows itself */
+.goo-filter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #ffffff;
+  transform: scale(0);
+  opacity: 0;
+  z-index: -1;
+}
+
+.goo-filter.goo-active::after {
+  animation: goo-pulse calc(var(--time, 1000ms) * 0.55) ease both;
+}
+
+@keyframes goo-pulse {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  35% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+.goo-particle,
+.goo-point {
+  display: block;
+  opacity: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  transform-origin: center;
+}
+
+.goo-particle {
+  --time: 5s;
+  position: absolute;
+  top: calc(50% - 8px);
+  left: calc(50% - 8px);
+  animation: goo-particle calc(var(--time)) ease 1 -350ms;
+}
+
+.goo-point {
+  background: var(--color);
+  opacity: 1;
+  animation: goo-point calc(var(--time)) ease 1 -350ms;
+}
+
+@keyframes goo-particle {
+  0% {
+    transform: rotate(0deg) translate(var(--start-x), var(--start-y));
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  70% {
+    transform: rotate(calc(var(--rotate) * 0.5))
+      translate(calc(var(--end-x) * 1.2), calc(var(--end-y) * 1.2));
+    opacity: 1;
+    animation-timing-function: ease;
+  }
+  85% {
+    transform: rotate(calc(var(--rotate) * 0.66))
+      translate(var(--end-x), var(--end-y));
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(calc(var(--rotate) * 1.2))
+      translate(calc(var(--end-x) * 0.5), calc(var(--end-y) * 0.5));
+    opacity: 1;
+  }
+}
+
+@keyframes goo-point {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  25% {
+    transform: scale(calc(var(--scale) * 0.25));
+  }
+  38% {
+    opacity: 1;
+  }
+  65% {
+    transform: scale(var(--scale));
+    opacity: 1;
+    animation-timing-function: ease;
+  }
+  85% {
+    transform: scale(var(--scale));
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
